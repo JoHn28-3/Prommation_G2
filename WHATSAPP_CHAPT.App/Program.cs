@@ -1,16 +1,23 @@
+using System;
+using System.Windows.Forms;
+using WHATSAPP_CHAPT.App.Forms;
+using WHATSAPP_CHAPT.App.Services;
+
 namespace WHATSAPP_CHAPT.App;
 
+/// <summary>
+/// Point d'entrée principal de l'application.
+/// </summary>
 static class Program
 {
     /// <summary>
-    ///  The main entry point for the application.
+    /// Point d'entrée principal pour l'application.
     /// </summary>
     [STAThread]
     static void Main()
     {
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
-        Application.Run(new Form1());
+        var chatService = new DemoChatService();
+        Application.Run(new MainForm(chatService, () => chatService.SimulateIncomingMessage()));
     }    
 }
