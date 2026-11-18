@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -31,16 +30,21 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly Panel _searchPanel;
         private readonly TextBox _searchTextBox;
         private readonly ConversationListControl _listControl;
+
         private readonly Panel _rightPanel;
+        private readonly Panel _rightHeaderPanel;
+        private readonly MessageListControl _messageListControl;
 
         private Guid? _selectedConversationId;
-        private string? _selectedTitle;
-        private int _selectedMessageCount;
+        private string? _selectedHeaderTitle;
+        private string? _selectedHeaderSubtitle;
+        private string? _selectedHeaderInitials;
+        private Color _selectedHeaderColor;
 
         private Font _headerTitleFont;
         private Font _rightEmptyFont;
         private Font _rightSelectedNameFont;
-        private Font _rightSelectedCountFont;
+        private Font _rightSubtitleFont;
 
         /// <summary>
         /// Initialise une nouvelle instance de la fenêtre principale.
@@ -63,8 +67,8 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             _headerTitleFont = new Font("Segoe UI", 11.5f, FontStyle.Bold);
             _rightEmptyFont = new Font("Segoe UI", 13f, FontStyle.Regular);
-            _rightSelectedNameFont = new Font("Segoe UI", 15f, FontStyle.Bold);
-            _rightSelectedCountFont = new Font("Segoe UI", 10.5f, FontStyle.Regular);
+            _rightSelectedNameFont = new Font("Segoe UI", 11.5f, FontStyle.Bold);
+            _rightSubtitleFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
 
             // Panneau gauche de largeur fixe (360 logiques)
             _leftPanel = new Panel
@@ -175,6 +179,26 @@ namespace WHATSAPP_CHAPT.App.Forms
             };
             _rightPanel.Paint += OnRightPanelPaint;
 
+            // En-tête de la zone droite
+            _rightHeaderPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = LogicalToDeviceUnits(60),
+                BackColor = Theme.Header,
+                Visible = false
+            };
+            _rightHeaderPanel.Paint += OnRightHeaderPanelPaint;
+
+            // Contrôle d'affichage des messages
+            _messageListControl = new MessageListControl
+            {
+                Dock = DockStyle.Fill,
+                Visible = false
+            };
+
+            _rightPanel.Controls.Add(_messageListControl);
+            _rightPanel.Controls.Add(_rightHeaderPanel);
+
             // Ajout des panneaux principaux
             Controls.Add(_rightPanel);
             Controls.Add(_leftPanel);
@@ -206,18 +230,29 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(async () => await ReloadConversationsAsync()));
+                BeginInvoke(new Action(async () =>
+                {
+                    await ReloadConversationsAsync();
+                    if (_selectedConversationId.HasValue && e.ConversationId == _selectedConversationId.Value)
+                    {
+                        await LoadMessagesForSelectedConversationAsync(isNewConversation: false);
+                    }
+                }));
                 return;
             }
 
             await ReloadConversationsAsync();
+            if (_selectedConversationId.HasValue && e.ConversationId == _selectedConversationId.Value)
+            {
+                await LoadMessagesForSelectedConversationAsync(isNewConversation: false);
+            }
         }
 
         private async void OnConversationSelected(object? sender, Guid conversationId)
         {
             _selectedConversationId = conversationId;
             await _service.MarkConversationReadAsync(conversationId);
-            await UpdateSelectedConversationDetailsAsync(conversationId);
+            await LoadMessagesForSelectedConversationAsync(isNewConversation: true);
         }
 
         private async Task ReloadConversationsAsync()
@@ -293,42 +328,153 @@ namespace WHATSAPP_CHAPT.App.Forms
             }
 
             _listControl.SetItems(items, preserveSelection: true);
-
-            if (_selectedConversationId.HasValue)
-            {
-                await UpdateSelectedConversationDetailsAsync(_selectedConversationId.Value);
-            }
         }
 
-        private async Task UpdateSelectedConversationDetailsAsync(Guid conversationId)
+        private async Task LoadMessagesForSelectedConversationAsync(bool isNewConversation = false)
         {
+            if (!_selectedConversationId.HasValue)
+            {
+                _rightHeaderPanel.Visible = false;
+                _messageListControl.Visible = false;
+                _rightPanel.Invalidate();
+                return;
+            }
+
+            var conversationId = _selectedConversationId.Value;
             var conversations = await _service.GetConversationsAsync();
             var conv = conversations.FirstOrDefault(c => c.Id == conversationId);
 
             if (conv == null)
             {
-                _selectedTitle = null;
-                _selectedMessageCount = 0;
+                _selectedConversationId = null;
+                _rightHeaderPanel.Visible = false;
+                _messageListControl.Visible = false;
+                _rightPanel.Invalidate();
+                return;
+            }
+
+            var contacts = await _service.GetContactsAsync();
+            var contactsMap = contacts.ToDictionary(c => c.Id, c => c.DisplayName);
+
+            string title;
+            string? subtitle = null;
+
+            if (!string.IsNullOrWhiteSpace(conv.Title))
+            {
+                title = conv.Title;
+                subtitle = $"{conv.Members.Count} membres";
             }
             else
             {
-                var contacts = await _service.GetContactsAsync();
-                if (!string.IsNullOrWhiteSpace(conv.Title))
+                var otherMember = conv.Members.FirstOrDefault(m => m.UserId != _service.CurrentUser.Id);
+                string otherName = otherMember != null && contactsMap.TryGetValue(otherMember.UserId, out var name)
+                    ? name
+                    : "Discussion";
+                title = otherName;
+                subtitle = null;
+            }
+
+            _selectedHeaderTitle = title;
+            _selectedHeaderSubtitle = subtitle;
+            _selectedHeaderInitials = ConversationListItem.GetInitials(title);
+            _selectedHeaderColor = ConversationListItem.GetAvatarColor(title);
+
+            var rawMessages = await _service.GetMessagesAsync(conversationId);
+            var messagesMap = rawMessages.ToDictionary(m => m.Id);
+
+            bool isGroup = conv.Type == ConversationType.Group;
+            var viewItems = new List<MessageViewItem>(rawMessages.Count);
+
+            for (int i = 0; i < rawMessages.Count; i++)
+            {
+                var m = rawMessages[i];
+                bool isMine = m.AuthorId == _service.CurrentUser.Id;
+
+                string authorName;
+                if (isMine)
                 {
-                    _selectedTitle = conv.Title;
+                    authorName = "Vous";
+                }
+                else if (contactsMap.TryGetValue(m.AuthorId, out var contactName))
+                {
+                    authorName = contactName;
                 }
                 else
                 {
-                    var otherMember = conv.Members.FirstOrDefault(m => m.UserId != _service.CurrentUser.Id);
-                    var contact = otherMember != null ? contacts.FirstOrDefault(c => c.Id == otherMember.UserId) : null;
-                    _selectedTitle = contact?.DisplayName ?? "Discussion";
+                    authorName = "Membre";
                 }
 
-                var messages = await _service.GetMessagesAsync(conversationId);
-                _selectedMessageCount = messages.Count;
+                bool showAuthorName = false;
+                if (isGroup && !isMine)
+                {
+                    if (i == 0)
+                    {
+                        showAuthorName = true;
+                    }
+                    else
+                    {
+                        var prev = rawMessages[i - 1];
+                        if (prev.AuthorId != m.AuthorId || prev.Timestamp.ToLocalTime().Date != m.Timestamp.ToLocalTime().Date)
+                        {
+                            showAuthorName = true;
+                        }
+                    }
+                }
+
+                string? replyAuthorName = null;
+                string? replyPreview = null;
+                if (m.ReplyToMessageId.HasValue)
+                {
+                    if (messagesMap.TryGetValue(m.ReplyToMessageId.Value, out var replyMsg))
+                    {
+                        if (replyMsg.AuthorId == _service.CurrentUser.Id)
+                        {
+                            replyAuthorName = "Vous";
+                        }
+                        else if (contactsMap.TryGetValue(replyMsg.AuthorId, out var rAuthor))
+                        {
+                            replyAuthorName = rAuthor;
+                        }
+                        else
+                        {
+                            replyAuthorName = "Membre";
+                        }
+
+                        replyPreview = replyMsg.IsDeleted
+                            ? "Message supprimé"
+                            : replyMsg.Content.Replace("\r\n", " ").Replace("\n", " ").Replace("\r", " ");
+                    }
+                    else
+                    {
+                        replyAuthorName = null;
+                        replyPreview = "Message introuvable";
+                    }
+                }
+
+                var viewItem = new MessageViewItem
+                {
+                    Id = m.Id,
+                    AuthorId = m.AuthorId,
+                    AuthorName = authorName,
+                    Text = m.Content,
+                    Timestamp = m.Timestamp,
+                    Time = m.Timestamp.ToLocalTime().ToString("HH:mm"),
+                    Status = m.Status,
+                    IsMine = isMine,
+                    IsEdited = m.IsEdited,
+                    IsDeleted = m.IsDeleted,
+                    ReplyAuthorName = replyAuthorName,
+                    ReplyPreview = replyPreview,
+                    ShowAuthorName = showAuthorName
+                };
+
+                viewItems.Add(viewItem);
             }
 
-            _rightPanel.Invalidate();
+            _rightHeaderPanel.Visible = true;
+            _messageListControl.Visible = true;
+            _rightHeaderPanel.Invalidate();
+            _messageListControl.SetMessages(viewItems, isNewConversation);
         }
 
         private void OnHeaderPanelPaint(object? sender, PaintEventArgs e)
@@ -357,6 +503,48 @@ namespace WHATSAPP_CHAPT.App.Forms
             g.DrawLine(pen, 0, _headerPanel.Height - 1, _headerPanel.Width, _headerPanel.Height - 1);
         }
 
+        private void OnRightHeaderPanelPaint(object? sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            int padding = LogicalToDeviceUnits(16);
+            int avatarSize = LogicalToDeviceUnits(38);
+            int avatarY = (_rightHeaderPanel.Height - avatarSize) / 2;
+
+            if (!string.IsNullOrEmpty(_selectedHeaderInitials))
+            {
+                var avatarBmp = _headerAvatarCache.GetAvatar(_selectedHeaderInitials, _selectedHeaderColor, avatarSize);
+                g.DrawImage(avatarBmp, padding, avatarY);
+            }
+
+            int textX = padding + avatarSize + LogicalToDeviceUnits(12);
+            int textW = _rightHeaderPanel.Width - textX - padding;
+
+            if (string.IsNullOrEmpty(_selectedHeaderSubtitle))
+            {
+                var titleRect = new Rectangle(textX, 0, textW, _rightHeaderPanel.Height);
+                TextRenderer.DrawText(g, _selectedHeaderTitle ?? string.Empty, _rightSelectedNameFont, titleRect, Theme.TextPrimary,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
+            else
+            {
+                int line1H = LogicalToDeviceUnits(22);
+                int line2H = LogicalToDeviceUnits(18);
+                int totalH = line1H + line2H;
+                int startY = (_rightHeaderPanel.Height - totalH) / 2;
+
+                var titleRect = new Rectangle(textX, startY, textW, line1H);
+                TextRenderer.DrawText(g, _selectedHeaderTitle ?? string.Empty, _rightSelectedNameFont, titleRect, Theme.TextPrimary,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+                var subRect = new Rectangle(textX, startY + line1H, textW, line2H);
+                TextRenderer.DrawText(g, _selectedHeaderSubtitle, _rightSubtitleFont, subRect, Theme.TextSecondary,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
+
+            using var pen = new Pen(Theme.Separator);
+            g.DrawLine(pen, 0, _rightHeaderPanel.Height - 1, _rightHeaderPanel.Width, _rightHeaderPanel.Height - 1);
+        }
+
         private void OnRightPanelPaint(object? sender, PaintEventArgs e)
         {
             var g = e.Graphics;
@@ -368,25 +556,10 @@ namespace WHATSAPP_CHAPT.App.Forms
                 g.DrawLine(borderPen, 0, 0, 0, _rightPanel.Height);
             }
 
-            if (!_selectedConversationId.HasValue || string.IsNullOrEmpty(_selectedTitle))
+            if (!_selectedConversationId.HasValue || string.IsNullOrEmpty(_selectedHeaderTitle))
             {
                 TextRenderer.DrawText(g, "Sélectionnez une conversation", _rightEmptyFont,
                     _rightPanel.ClientRectangle, Theme.TextSecondary,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-            }
-            else
-            {
-                int centerY = _rightPanel.Height / 2;
-                int nameHeight = LogicalToDeviceUnits(30);
-                int countHeight = LogicalToDeviceUnits(24);
-
-                var nameRect = new Rectangle(0, centerY - nameHeight, _rightPanel.Width, nameHeight);
-                TextRenderer.DrawText(g, _selectedTitle, _rightSelectedNameFont, nameRect, Theme.TextPrimary,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-
-                string countText = $"{_selectedMessageCount} message{(_selectedMessageCount > 1 ? "s" : string.Empty)}";
-                var countRect = new Rectangle(0, centerY, _rightPanel.Width, countHeight);
-                TextRenderer.DrawText(g, countText, _rightSelectedCountFont, countRect, Theme.TextSecondary,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
             }
         }
@@ -400,7 +573,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                 _headerTitleFont.Dispose();
                 _rightEmptyFont.Dispose();
                 _rightSelectedNameFont.Dispose();
-                _rightSelectedCountFont.Dispose();
+                _rightSubtitleFont.Dispose();
             }
 
             base.Dispose(disposing);
