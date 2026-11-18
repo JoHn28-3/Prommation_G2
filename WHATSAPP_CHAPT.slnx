@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="WHATSAPP_CHAPT.App/WHATSAPP_CHAPT.App.csproj" />
+  <Project Path="WHATSAPP_CHAPT.Core/WHATSAPP_CHAPT.Core.csproj" />
+</Solution>
