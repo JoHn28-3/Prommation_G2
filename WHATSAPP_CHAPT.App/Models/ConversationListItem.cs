@@ -19,6 +19,11 @@ namespace WHATSAPP_CHAPT.App.Models
         public Guid ConversationId { get; init; }
 
         /// <summary>
+        /// Identifiant du propriétaire de la photo (autre membre pour un DM, conversation pour un groupe).
+        /// </summary>
+        public Guid OwnerId { get; init; }
+
+        /// <summary>
         /// Nom affiché de la conversation.
         /// </summary>
         public string DisplayName { get; init; } = string.Empty;
