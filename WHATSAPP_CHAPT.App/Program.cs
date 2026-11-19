@@ -17,7 +17,29 @@ static class Program
     static void Main()
     {
         ApplicationConfiguration.Initialize();
+
+        string logPath = System.IO.Path.Combine(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
+            "whatsapp_crash.log");
+
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (s, e) =>
+        {
+            System.IO.File.WriteAllText(logPath, $"[ThreadException]\n{e.Exception}");
+            MessageBox.Show(e.Exception.ToString(), "CRASH ThreadException");
+        };
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+        {
+            System.IO.File.WriteAllText(logPath, $"[UnhandledException]\n{e.ExceptionObject}");
+            MessageBox.Show(e.ExceptionObject?.ToString() ?? "null", "CRASH Unhandled");
+        };
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            System.IO.File.WriteAllText(logPath, $"[UnobservedTask]\n{e.Exception}");
+        };
+
         var chatService = new DemoChatService();
-        Application.Run(new MainForm(chatService, () => chatService.SimulateIncomingMessage()));
+        var avatarStore = new LocalAvatarStore();
+        Application.Run(new MainForm(chatService, avatarStore, () => chatService.SimulateIncomingMessage()));
     }    
 }

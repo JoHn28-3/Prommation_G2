@@ -37,6 +37,11 @@ namespace WHATSAPP_CHAPT.App.Controls
         private Font _fontArrow;
 
         /// <summary>
+        /// Événement levé lors d'un clic droit sur un message.
+        /// </summary>
+        public event Action<Guid, Point>? MessageRightClicked;
+
+        /// <summary>
         /// Initialise une nouvelle instance de <see cref="MessageListControl"/>.
         /// </summary>
         public MessageListControl()
@@ -218,13 +223,40 @@ namespace WHATSAPP_CHAPT.App.Controls
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (_newMessagesBelow > 0 && _scrollDownButtonRect.Contains(e.Location))
+            if (e.Button == MouseButtons.Left && _newMessagesBelow > 0 && _scrollDownButtonRect.Contains(e.Location))
             {
                 ScrollToBottom();
+                return;
+            }
+
+            if (e.Button == MouseButtons.Right)
+            {
+                int targetY = e.Y + _scrollOffset;
+                int firstIndex = FindFirstVisibleIndex(targetY);
+                if (firstIndex >= 0)
+                {
+                    for (int i = firstIndex; i < _layoutItems.Count; i++)
+                    {
+                        var item = _layoutItems[i];
+                        if (item.Y > targetY)
+                        {
+                            break;
+                        }
+
+                        if (item is MessageBubbleLayoutItem bubble && bubble.BubbleBounds.Contains(e.X, targetY))
+                        {
+                            MessageRightClicked?.Invoke(bubble.Message.Id, e.Location);
+                            break;
+                        }
+                    }
+                }
             }
         }
 
-        private void ScrollToBottom()
+        /// <summary>
+        /// Fait défiler la liste des messages jusqu'au bas.
+        /// </summary>
+        public void ScrollToBottom()
         {
             int maxScroll = Math.Max(0, _totalHeight - Height);
             _scrollOffset = maxScroll;

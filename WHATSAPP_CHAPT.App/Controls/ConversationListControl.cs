@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Drawing;
 using WHATSAPP_CHAPT.App.Models;
 using WHATSAPP_CHAPT.App.Search;
+using WHATSAPP_CHAPT.App.Services;
 
 namespace WHATSAPP_CHAPT.App.Controls
 {
@@ -18,7 +19,7 @@ namespace WHATSAPP_CHAPT.App.Controls
     public sealed class ConversationListControl : UserControl
     {
         private readonly VScrollBar _vScrollBar;
-        private readonly AvatarCache _avatarCache = new();
+        private readonly AvatarCache _avatarCache;
 
         private List<ConversationListItem> _allItems = new();
         private List<ConversationListItem> _filteredItems = new();
@@ -40,10 +41,18 @@ namespace WHATSAPP_CHAPT.App.Controls
         public event EventHandler<Guid>? SelectedConversationChanged;
 
         /// <summary>
+        /// Événement levé lors d'un clic droit sur une conversation.
+        /// </summary>
+        public event Action<Guid, Point>? ConversationRightClicked;
+
+        /// <summary>
         /// Initialise une nouvelle instance de <see cref="ConversationListControl"/>.
         /// </summary>
-        public ConversationListControl()
+        /// <param name="avatarProvider">Fournisseur de photos de profil (optionnel).</param>
+        public ConversationListControl(IAvatarProvider? avatarProvider = null)
         {
+            _avatarCache = new AvatarCache(avatarProvider);
+
             SetStyle(ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.UserPaint |
                      ControlStyles.OptimizedDoubleBuffer |
@@ -254,10 +263,6 @@ namespace WHATSAPP_CHAPT.App.Controls
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (e.Button != MouseButtons.Left)
-            {
-                return;
-            }
 
             int itemHeight = LogicalToDeviceUnits(72);
             int scrollbarWidth = _vScrollBar.Visible ? _vScrollBar.Width : 0;
@@ -268,9 +273,17 @@ namespace WHATSAPP_CHAPT.App.Controls
                 if (index >= 0 && index < _filteredItems.Count)
                 {
                     var item = _filteredItems[index];
-                    _selectedConversationId = item.ConversationId;
-                    SelectedConversationChanged?.Invoke(this, item.ConversationId);
-                    Invalidate();
+
+                    if (e.Button == MouseButtons.Left)
+                    {
+                        _selectedConversationId = item.ConversationId;
+                        SelectedConversationChanged?.Invoke(this, item.ConversationId);
+                        Invalidate();
+                    }
+                    else if (e.Button == MouseButtons.Right)
+                    {
+                        ConversationRightClicked?.Invoke(item.ConversationId, e.Location);
+                    }
                 }
             }
         }
@@ -320,9 +333,9 @@ namespace WHATSAPP_CHAPT.App.Controls
                     g.FillRectangle(brush, itemRect);
                 }
 
-                // Avatar circulaire avec initiales
+                // Avatar circulaire (photo de profil ou initiales)
                 int avatarY = y + (itemHeight - avatarSize) / 2;
-                var avatar = _avatarCache.GetAvatar(item.Initials, item.AvatarColor, avatarSize);
+                var avatar = _avatarCache.GetAvatar(item.OwnerId, item.DisplayName, avatarSize);
                 g.DrawImage(avatar, paddingLeft, avatarY);
 
                 // Coordonnées de texte
