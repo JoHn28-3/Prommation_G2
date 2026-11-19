@@ -1,7 +1,7 @@
 # Phase C – Groupes logique
 
 - **Statut** : ✅ Complétée
-- **Commit** : `{{HASH}}` (sera mis à jour après le commit final)
+- **Commit** : `f6d39d7`
 - **Tests** : 14/14 réussis
 - **Points non testés** : Aucun
 - **Issues ouvertes** : Voir `docs/ISSUES.md`

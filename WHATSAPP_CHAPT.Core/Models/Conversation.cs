@@ -26,5 +26,10 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Membres participants.
         /// </summary>
         public IReadOnlyList<Member> Members { get; set; } = new List<Member>();
+
+        /// <summary>
+        /// Identifiants des membres de la conversation.
+        /// </summary>
+        public IReadOnlyList<Guid> MemberIds => Members.Select(m => m.UserId).ToList();
     }
 }

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WHATSAPP_CHAPT.Core\WHATSAPP_CHAPT.Core.csproj" />
+    <ProjectReference Include="..\WHATSAPP_CHAPT.Storage\WHATSAPP_CHAPT.Storage.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

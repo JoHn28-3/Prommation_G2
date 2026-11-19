@@ -8,6 +8,7 @@ using WHATSAPP_CHAPT.Core.Models;
 using WHATSAPP_CHAPT.Core.Services;
 using WHATSAPP_CHAPT.Core.Rules;
 using WHATSAPP_CHAPT.App.Services;
+using WHATSAPP_CHAPT.Core.Events;
 
 namespace WHATSAPP_CHAPT.App.SelfTest
 {
