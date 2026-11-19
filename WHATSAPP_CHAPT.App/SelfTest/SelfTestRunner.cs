@@ -27,6 +27,11 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 Phase7ATests.Run(results);
             }
 
+            if (normalizedPhase == "c" || normalizedPhase == "all")
+            {
+                Phase7CTests.Run(results);
+            }
+
             int total = results.Count;
             int passed = 0;
             var lines = new List<string>();
