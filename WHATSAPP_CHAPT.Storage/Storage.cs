@@ -145,6 +145,14 @@ namespace WHATSAPP_CHAPT.Storage
                     PublicKey BLOB NOT NULL,
                     AddedAt TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS ArchivedContacts (
+                    Id TEXT PRIMARY KEY,
+                    DisplayName TEXT NOT NULL,
+                    PublicKey BLOB NOT NULL,
+                    AddedAt TEXT NOT NULL,
+                    IsArchived INTEGER NOT NULL DEFAULT 0
+                );
+
             ";
             cmd.ExecuteNonQuery();
         }
@@ -155,6 +163,20 @@ namespace WHATSAPP_CHAPT.Storage
             cmd.CommandText = "INSERT OR REPLACE INTO Identities (Id, PublicKey, CreatedAt) VALUES (@id, @pk, @now);";
             cmd.Parameters.AddWithValue("@id", id.ToString("d"));
             cmd.Parameters.AddWithValue("@pk", publicKey);
+            cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Insert or replace a peer record.
+        /// </summary>
+        public void InsertPeer(Guid id, string name, string ipAddress)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO Peers (Id, Name, IpAddress, AddedAt) VALUES (@id, @name, @ip, @now);";
+            cmd.Parameters.AddWithValue("@id", id.ToString("d"));
+            cmd.Parameters.AddWithValue("@name", name);
+            cmd.Parameters.AddWithValue("@ip", ipAddress);
             cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
             cmd.ExecuteNonQuery();
         }
