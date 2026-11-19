@@ -246,6 +246,31 @@ namespace WHATSAPP_CHAPT.App.Services
             return Task.FromResult(msg);
         }
 
+        public Task<ChatMessage> SendMediaMessageAsync(Guid conversationId, string mediaPath, string mediaType, long mediaSize)
+        {
+            if (string.IsNullOrWhiteSpace(mediaPath) || !System.IO.File.Exists(mediaPath))
+                throw new ArgumentException("Le fichier média est introuvable.", nameof(mediaPath));
+            if (!_conversations.Any(c => c.Id == conversationId))
+                throw new InvalidOperationException("Conversation inconnue.");
+
+            var msg = new ChatMessage
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversationId,
+                AuthorId = CurrentUser.Id,
+                Content = string.Empty,
+                Timestamp = DateTimeOffset.Now,
+                Status = MessageStatus.Pending,
+                MediaPath = mediaPath,
+                MediaType = mediaType,
+                MediaSize = mediaSize
+            };
+            _messagesByConversation[conversationId].Add(msg);
+            RaiseChatEvent(ChatEventType.MessageAdded, conversationId, msg.Id);
+            SimulateStatusProgression(msg);
+            return Task.FromResult(msg);
+        }
+
         private async void SimulateStatusProgression(ChatMessage msg)
         {
             try

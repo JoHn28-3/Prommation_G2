@@ -31,7 +31,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string ToolTipText
         {
-            get => _toolTip.GetToolTip(this);
+            get => _toolTip.GetToolTip(this) ?? string.Empty;
             set => _toolTip.SetToolTip(this, value ?? string.Empty);
         }
 

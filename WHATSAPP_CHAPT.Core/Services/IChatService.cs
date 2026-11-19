@@ -39,6 +39,11 @@ namespace WHATSAPP_CHAPT.Core.Services
         Task<Message> SendMessageAsync(Guid conversationId, string content, Guid? replyToMessageId = null);
 
         /// <summary>
+        /// Ajoute un fichier média local à une conversation.
+        /// </summary>
+        Task<Message> SendMediaMessageAsync(Guid conversationId, string mediaPath, string mediaType, long mediaSize);
+
+        /// <summary>
         /// Modifie le texte d'un propre message.
         /// </summary>
         Task<bool> EditMessageAsync(Guid messageId, string newContent);

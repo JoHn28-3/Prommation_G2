@@ -1,6 +1,17 @@
+# Build outputs
 **/bin/
 **/obj/
-**/.vs/
+.vs/
+*.user
+*.suo
+
+# Local secrets and runtime configuration
 WHATSAPP_CHAPT.App/Config/groq.settings.json
-WHATSAPP_CHAPT.App/Config/audio-cache/
-WHATSAPP_CHAPT.App/Config/transcriptions/
+**/groq.settings.json
+!**/groq.settings.example.json
+
+# Local user data and diagnostics
+*.db
+*.db-shm
+*.db-wal
+*.log

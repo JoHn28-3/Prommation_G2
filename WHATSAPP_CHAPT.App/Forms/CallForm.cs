@@ -108,7 +108,7 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             _btnMute = new Button
             {
-                Text = "🎙 Micro",
+                Text = "Micro",
                 Size = new Size(110, 48),
                 BackColor = Color.FromArgb(40, 50, 60),
                 ForeColor = Color.White,
@@ -120,13 +120,13 @@ namespace WHATSAPP_CHAPT.App.Forms
             _btnMute.Click += (s, e) =>
             {
                 _isMuted = !_isMuted;
-                _btnMute.Text = _isMuted ? "🔇 Muet" : "🎙 Micro";
+                _btnMute.Text = _isMuted ? "Muet" : "Micro";
                 _btnMute.BackColor = _isMuted ? Color.FromArgb(180, 50, 50) : Color.FromArgb(40, 50, 60);
             };
 
             _btnVideo = new Button
             {
-                Text = _isVideoOn ? "📷 Vidéo ON" : "📷 Vidéo OFF",
+                Text = _isVideoOn ? "Vidéo ON" : "Vidéo OFF",
                 Size = new Size(120, 48),
                 BackColor = _isVideoOn ? Theme.Accent : Color.FromArgb(40, 50, 60),
                 ForeColor = Color.White,
@@ -138,14 +138,14 @@ namespace WHATSAPP_CHAPT.App.Forms
             _btnVideo.Click += (s, e) =>
             {
                 _isVideoOn = !_isVideoOn;
-                _btnVideo.Text = _isVideoOn ? "📷 Vidéo ON" : "📷 Vidéo OFF";
+                _btnVideo.Text = _isVideoOn ? "Vidéo ON" : "Vidéo OFF";
                 _btnVideo.BackColor = _isVideoOn ? Theme.Accent : Color.FromArgb(40, 50, 60);
                 _videoPanel.Invalidate();
             };
 
             _btnEnd = new Button
             {
-                Text = "🔴 Raccrocher",
+                Text = "Raccrocher",
                 Size = new Size(130, 48),
                 BackColor = Color.FromArgb(220, 40, 40),
                 ForeColor = Color.White,

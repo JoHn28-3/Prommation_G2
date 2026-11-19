@@ -41,13 +41,16 @@ namespace WHATSAPP_CHAPT.App.Forms
             // --- Titre ---
             var lblTitle = new Label
             {
-                Text = "✦ Meta AI",
+                Text = "Meta AI",
                 Dock = DockStyle.Top,
                 Height = 44,
                 ForeColor = Color.FromArgb(100, 160, 255),
                 Font = new Font("Segoe UI", 13f, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Color.FromArgb(25, 25, 25)
+                BackColor = Color.FromArgb(25, 25, 25),
+                Image = LoadLogo(),
+                ImageAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(12, 0, 12, 0)
             };
 
             // --- Historique ---
@@ -170,6 +173,12 @@ namespace WHATSAPP_CHAPT.App.Forms
 
                 _btnSend.Enabled = true;
             }
+        }
+
+        private static Image? LoadLogo()
+        {
+            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "LOGO", "asset.png");
+            return System.IO.File.Exists(path) ? new Bitmap(path) : null;
         }
 
         private void AppendHistory(string author, string text)

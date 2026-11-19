@@ -453,7 +453,13 @@ namespace WHATSAPP_CHAPT.App.Controls
                 DrawRoundedRectangle(g, mRect, LogicalToDeviceUnits(4), mediaBg);
 
                 string mediaFileName = System.IO.Path.GetFileName(bubble.Message.MediaPath) ?? "Fichier";
-                string mediaLabel = bubble.Message.MediaType == "image" ? $"📷 {mediaFileName}" : $"📎 {mediaFileName}";
+                string mediaLabel = bubble.Message.MediaType switch
+                {
+                    "image" => $"Image  {mediaFileName}",
+                    "video" => $"Vidéo  {mediaFileName}",
+                    "audio" => $"Audio  {mediaFileName}",
+                    _ => $"Fichier  {mediaFileName}"
+                };
 
                 TextRenderer.DrawText(g, mediaLabel, _fontRegular, mRect, Theme.Accent,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);

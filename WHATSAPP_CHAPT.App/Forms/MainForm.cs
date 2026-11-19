@@ -476,17 +476,42 @@ namespace WHATSAPP_CHAPT.App.Forms
         private void OnEmojiRequested()
         {
             if (!_inputControl.Enabled) return;
-            _inputControl.Text += (_inputControl.Text.Length == 0 ? string.Empty : " ") + "😀";
-            _inputControl.FocusInput();
+
+            var menu = new ContextMenuStrip
+            {
+                Renderer = new ThemeContextMenuRenderer(),
+                BackColor = Theme.Header,
+                ForeColor = Theme.TextPrimary,
+                AutoSize = false,
+                Size = new Size(LogicalToDeviceUnits(260), LogicalToDeviceUnits(150))
+            };
+            var emojiMap = new Dictionary<string, string>
+            {
+                ["1f600"] = "\U0001F600", ["1f602"] = "\U0001F602", ["1f605"] = "\U0001F605",
+                ["1f60a"] = "\U0001F60A", ["1f60d"] = "\U0001F60D", ["1f60e"] = "\U0001F60E",
+                ["1f621"] = "\U0001F621", ["1f622"] = "\U0001F622", ["1f62d"] = "\U0001F62D",
+                ["1f62e"] = "\U0001F62E", ["1f631"] = "\U0001F631", ["1f634"] = "\U0001F634",
+                ["1f644"] = "\U0001F644", ["1f914"] = "\U0001F914", ["1f92c"] = "\U0001F92C",
+                ["1f973"] = "\U0001F973"
+            };
+            foreach (var pair in emojiMap)
+            {
+                var item = new ToolStripMenuItem { AutoSize = false, Size = new Size(48, 42), Tag = pair.Value };
+                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Emoji", pair.Key + ".png");
+                if (System.IO.File.Exists(path)) item.Image = new Bitmap(path);
+                item.Click += (s, e) =>
+                {
+                    _inputControl.Text += (string.IsNullOrEmpty(_inputControl.Text) ? string.Empty : " ") + (string)item.Tag;
+                    _inputControl.FocusInput();
+                };
+                menu.Items.Add(item);
+            }
+            menu.Show(_inputControl, new Point(0, -menu.Height));
         }
 
         private void OnVoiceRequested()
         {
-            ShowStatusMessage("Enregistrement vocal local prêt — appuyez sur envoyer pour l’ajouter à la discussion.");
-            _inputControl.Text = string.IsNullOrWhiteSpace(_inputControl.Text)
-                ? "[Message vocal]"
-                : _inputControl.Text + " [Message vocal]";
-            _inputControl.FocusInput();
+            OnAttachmentRequested("voicerecord");
         }
 
         private async void OnAttachmentRequested(string kind)
@@ -504,16 +529,24 @@ namespace WHATSAPP_CHAPT.App.Forms
             using var dialog = new OpenFileDialog { Filter = filter, Title = "Choisir un fichier à joindre" };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
-            string label = kind switch
+            string mediaType = kind switch
             {
-                "image" or "photo" => "Image",
-                "video" => "Vidéo",
-                "audio" or "voicerecord" => "Audio",
-                "sticker" => "Sticker",
-                _ => "Document"
+                "image" or "photo" => "image",
+                "video" => "video",
+                "audio" or "voicerecord" => "audio",
+                "sticker" => "sticker",
+                _ => "document"
             };
-            string text = $"[{label}] {System.IO.Path.GetFileName(dialog.FileName)}";
-            await SendLocalAttachmentMessageAsync(text);
+            string mediaRoot = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WHATSAPP_CHAPT", "Media");
+            System.IO.Directory.CreateDirectory(mediaRoot);
+            string safeName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}_{System.IO.Path.GetFileName(dialog.FileName)}";
+            string localPath = System.IO.Path.Combine(mediaRoot, safeName);
+            System.IO.File.Copy(dialog.FileName, localPath, overwrite: false);
+            await _service.SendMediaMessageAsync(_selectedConversationId.Value, localPath, mediaType, new System.IO.FileInfo(localPath).Length);
+            _messageListControl.ScrollToBottom();
+            ShowStatusMessage("Fichier joint localement à la discussion.");
         }
 
         private async Task SendLocalAttachmentMessageAsync(string text)

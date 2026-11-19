@@ -136,9 +136,12 @@ namespace WHATSAPP_CHAPT.App.Controls
             };
             _placeholderLabel.Click += (s, e) => _textBox.Focus();
 
-            _emojiButton = CreateToolButton("☺", "Emojis", (s, e) => EmojiRequested?.Invoke());
-            _attachmentButton = CreateToolButton("📎", "Joindre un fichier, une photo, une vidéo ou un audio", OnAttachmentClicked);
-            _voiceButton = CreateToolButton("🎙", "Enregistrer un message vocal", (s, e) => VoiceRequested?.Invoke());
+            _emojiButton = CreateToolButton("E", "Emojis", (s, e) => EmojiRequested?.Invoke());
+            _attachmentButton = CreateToolButton("+", "Joindre un fichier, une photo, une vidéo ou un audio", OnAttachmentClicked);
+            _voiceButton = CreateToolButton("A", "Choisir un fichier audio", (s, e) => VoiceRequested?.Invoke());
+            SetAssetIcon(_emojiButton, "emoji.png");
+            SetAssetIcon(_attachmentButton, "attachment.png");
+            SetAssetIcon(_voiceButton, "audio.png");
 
             Controls.Add(_placeholderLabel);
             Controls.Add(_textBox);
@@ -161,6 +164,15 @@ namespace WHATSAPP_CHAPT.App.Controls
             new ToolTip().SetToolTip(button, tooltip);
             button.Click += handler;
             return button;
+        }
+
+        private static void SetAssetIcon(Button button, string fileName)
+        {
+            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Icons", fileName);
+            if (!System.IO.File.Exists(path)) return;
+            button.Image = new Bitmap(path);
+            button.Text = string.Empty;
+            button.ImageAlign = ContentAlignment.MiddleCenter;
         }
 
         private void OnAttachmentClicked(object? sender, EventArgs e)
