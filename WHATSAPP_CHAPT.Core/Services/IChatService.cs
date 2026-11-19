@@ -59,6 +59,31 @@ namespace WHATSAPP_CHAPT.Core.Services
         Task<int> GetUnreadCountAsync(Guid conversationId);
 
         /// <summary>
+        /// Crée un nouveau groupe avec les membres spécifiés.
+        /// </summary>
+        Task<Conversation> CreateGroupAsync(string title, IReadOnlyList<Guid> memberIds);
+
+        /// <summary>
+        /// Ajoute un membre à une conversation de groupe.
+        /// </summary>
+        Task<bool> AddMemberAsync(Guid conversationId, Guid userId);
+
+        /// <summary>
+        /// Retire un membre d'une conversation de groupe.
+        /// </summary>
+        Task<bool> RemoveMemberAsync(Guid conversationId, Guid userId);
+
+        /// <summary>
+        /// Modifie le rôle d'un membre dans un groupe.
+        /// </summary>
+        Task<bool> SetMemberRoleAsync(Guid conversationId, Guid userId, MemberRole role);
+
+        /// <summary>
+        /// Quitte une conversation de groupe.
+        /// </summary>
+        Task<bool> LeaveGroupAsync(Guid conversationId);
+
+        /// <summary>
         /// Événement levé lorsqu'un événement de chat se produit.
         /// </summary>
         event EventHandler<ChatEvent>? ChatEventRaised;

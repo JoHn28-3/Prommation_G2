@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using WHATSAPP_CHAPT.Core.Services;
 using WHATSAPP_CHAPT.Core.Events;
 using WHATSAPP_CHAPT.Core.Models;
+using WHATSAPP_CHAPT.Core.Rules;
 using ChatMessage = WHATSAPP_CHAPT.Core.Models.Message;
 
 namespace WHATSAPP_CHAPT.App.Services
@@ -41,7 +42,9 @@ namespace WHATSAPP_CHAPT.App.Services
             var paul = new Contact { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), DisplayName = "Paul" };
             var lea = new Contact { Id = Guid.Parse("33333333-3333-3333-3333-333333333333"), DisplayName = "Léa" };
             var samuel = new Contact { Id = Guid.Parse("44444444-4444-4444-4444-444444444444"), DisplayName = "Samuel" };
-            _contacts.AddRange(new[] { paul, lea, samuel });
+            var marie = new Contact { Id = Guid.Parse("55555555-5555-5555-5555-555555555555"), DisplayName = "Marie" };
+            var ray = new Contact { Id = Guid.Parse("66666666-6666-6666-6666-666666666666"), DisplayName = "Ray" };
+            _contacts.AddRange(new[] { paul, lea, samuel, marie, ray });
 
             // Conversations directes.
             var convPaul = new Conversation
@@ -93,7 +96,21 @@ namespace WHATSAPP_CHAPT.App.Services
                 }
             };
 
-            _conversations.AddRange(new[] { convPaul, convLea, convSamuel, convGroup });
+            // Conversation groupe « Projet C# ».
+            var convProjet = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = ConversationType.Group,
+                Title = "Projet C#",
+                Members = new List<Member>
+                {
+                    new Member { UserId = paul.Id, Role = MemberRole.Administrator },
+                    new Member { UserId = CurrentUser.Id, Role = MemberRole.Member },
+                    new Member { UserId = lea.Id, Role = MemberRole.Member }
+                }
+            };
+
+            _conversations.AddRange(new[] { convPaul, convLea, convSamuel, convGroup, convProjet });
 
             // Initialiser les dictionnaires de messages.
             foreach (var conv in _conversations)
@@ -144,17 +161,26 @@ namespace WHATSAPP_CHAPT.App.Services
             var g5 = CreateMessage(convGroup.Id, paul.Id, "Merci !", now.AddHours(-3), MessageStatus.Sent);
             var g6 = CreateMessage(convGroup.Id, CurrentUser.Id, "De rien, problème résolu.", now.AddHours(-2).AddMinutes(30), MessageStatus.Pending, edited: true);
 
+            // Groupe Projet C#.
+            var p1 = CreateMessage(convProjet.Id, paul.Id, "Bienvenue dans le groupe Projet C# !", now.AddDays(-2).AddHours(10), MessageStatus.Read);
+            var p2 = CreateMessage(convProjet.Id, lea.Id, "Super, on commence par l'architecture ?", now.AddDays(-2).AddHours(10).AddMinutes(15), MessageStatus.Read);
+            var p3 = CreateMessage(convProjet.Id, CurrentUser.Id, "J'ai préparé les modèles de base.", now.AddDays(-2).AddHours(11), MessageStatus.Read);
+            var p4 = CreateMessage(convProjet.Id, paul.Id, "Parfait, continuons sur cette lancée.", now.AddDays(-1).AddHours(16), MessageStatus.Read);
+            var p5 = CreateMessage(convProjet.Id, CurrentUser.Id, "Je m'occupe des règles de groupe aujourd'hui.", now.AddHours(-3), MessageStatus.Sent);
+
             // Ajouter les messages.
             AddMessages(convPaul.Id, new[] { m1, m2, m3, m4, m5 });
             AddMessages(convLea.Id, new[] { l1, l2 });
             AddMessages(convSamuel.Id, new[] { s1, s2 });
             AddMessages(convGroup.Id, new[] { g1, g2, g3, g4, g5, g6 });
+            AddMessages(convProjet.Id, new[] { p1, p2, p3, p4, p5 });
 
             // Dates de dernière lecture pour les comptes non lus.
             _lastRead[convPaul.Id] = now.AddDays(-2); // Paul : 2 non lus.
             _lastRead[convLea.Id] = now; // Léa : 0.
             _lastRead[convSamuel.Id] = now.AddDays(-2); // Samuel : 1 non lu.
             _lastRead[convGroup.Id] = now.AddHours(-4); // Lab Réseau : 3 non lus.
+            _lastRead[convProjet.Id] = now.AddHours(-2); // Projet C# : 0 non lu.
         }
 
         private void AddMessages(Guid convId, IEnumerable<ChatMessage> msgs)
@@ -172,7 +198,7 @@ namespace WHATSAPP_CHAPT.App.Services
         /// <inheritdoc/>
         public Task<IReadOnlyList<Conversation>> GetConversationsAsync()
         {
-            var copy = _conversations.Select(c => c).ToList().AsReadOnly();
+            var copy = _conversations.Where(c => c.Members.Any(m => m.UserId == CurrentUser.Id)).ToList().AsReadOnly();
             return Task.FromResult<IReadOnlyList<Conversation>>(copy);
         }
 
@@ -311,6 +337,194 @@ namespace WHATSAPP_CHAPT.App.Services
         {
             var ev = new ChatEvent(type, conversationId, messageId, DateTimeOffset.Now);
             ChatEventRaised?.Invoke(this, ev);
+        }
+
+        /// <inheritdoc/>
+        public Task<Conversation> CreateGroupAsync(string title, IReadOnlyList<Guid> memberIds)
+        {
+            if (!GroupRules.ValidateNewGroup(title, CurrentUser.Id, memberIds, out string? error))
+            {
+                throw new ArgumentException(error ?? "Paramètres de création de groupe invalides.", nameof(title));
+            }
+
+            var members = new List<Member>
+            {
+                new Member { UserId = CurrentUser.Id, Role = MemberRole.Administrator }
+            };
+
+            foreach (var id in memberIds)
+            {
+                members.Add(new Member { UserId = id, Role = MemberRole.Member });
+            }
+
+            var group = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = ConversationType.Group,
+                Title = title.Trim(),
+                Members = members
+            };
+
+            _conversations.Add(group);
+            _messagesByConversation[group.Id] = new List<ChatMessage>();
+            _lastRead[group.Id] = DateTimeOffset.MinValue;
+
+            RaiseChatEvent(ChatEventType.ConversationUpdated, group.Id, null);
+            return Task.FromResult(group);
+        }
+
+        /// <inheritdoc/>
+        public Task<bool> AddMemberAsync(Guid conversationId, Guid userId)
+        {
+            if (userId == Guid.Empty)
+            {
+                throw new ArgumentException("Identifiant de membre invalide.", nameof(userId));
+            }
+
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null)
+            {
+                throw new InvalidOperationException("Conversation introuvable.");
+            }
+
+            if (!GroupRules.CanAddMember(conv, CurrentUser.Id, userId))
+            {
+                return Task.FromResult(false);
+            }
+
+            var updatedMembers = conv.Members.Select(m => new Member { UserId = m.UserId, Role = m.Role }).ToList();
+            updatedMembers.Add(new Member { UserId = userId, Role = MemberRole.Member });
+
+            var updatedConv = new Conversation
+            {
+                Id = conv.Id,
+                Type = conv.Type,
+                Title = conv.Title,
+                Members = updatedMembers
+            };
+
+            int index = _conversations.IndexOf(conv);
+            _conversations[index] = updatedConv;
+
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conv.Id, null);
+            return Task.FromResult(true);
+        }
+
+        /// <inheritdoc/>
+        public Task<bool> RemoveMemberAsync(Guid conversationId, Guid userId)
+        {
+            if (userId == Guid.Empty)
+            {
+                throw new ArgumentException("Identifiant de membre invalide.", nameof(userId));
+            }
+
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null)
+            {
+                throw new InvalidOperationException("Conversation introuvable.");
+            }
+
+            if (!GroupRules.CanRemoveMember(conv, CurrentUser.Id, userId))
+            {
+                return Task.FromResult(false);
+            }
+
+            var updatedMembers = conv.Members
+                .Where(m => m.UserId != userId)
+                .Select(m => new Member { UserId = m.UserId, Role = m.Role })
+                .ToList();
+
+            var updatedConv = new Conversation
+            {
+                Id = conv.Id,
+                Type = conv.Type,
+                Title = conv.Title,
+                Members = updatedMembers
+            };
+
+            int index = _conversations.IndexOf(conv);
+            _conversations[index] = updatedConv;
+
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conv.Id, null);
+            return Task.FromResult(true);
+        }
+
+        /// <inheritdoc/>
+        public Task<bool> SetMemberRoleAsync(Guid conversationId, Guid userId, MemberRole role)
+        {
+            if (userId == Guid.Empty)
+            {
+                throw new ArgumentException("Identifiant de membre invalide.", nameof(userId));
+            }
+
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null)
+            {
+                throw new InvalidOperationException("Conversation introuvable.");
+            }
+
+            if (!GroupRules.CanChangeRole(conv, CurrentUser.Id, userId, role))
+            {
+                return Task.FromResult(false);
+            }
+
+            var updatedMembers = conv.Members
+                .Select(m => new Member { UserId = m.UserId, Role = m.UserId == userId ? role : m.Role })
+                .ToList();
+
+            var updatedConv = new Conversation
+            {
+                Id = conv.Id,
+                Type = conv.Type,
+                Title = conv.Title,
+                Members = updatedMembers
+            };
+
+            int index = _conversations.IndexOf(conv);
+            _conversations[index] = updatedConv;
+
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conv.Id, null);
+            return Task.FromResult(true);
+        }
+
+        /// <inheritdoc/>
+        public Task<bool> LeaveGroupAsync(Guid conversationId)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null)
+            {
+                throw new InvalidOperationException("Conversation introuvable.");
+            }
+
+            if (!GroupRules.CanLeave(conv, CurrentUser.Id))
+            {
+                return Task.FromResult(false);
+            }
+
+            var updatedMembers = GroupRules.ComputeMembersAfterLeave(conv, CurrentUser.Id, out bool shouldDelete);
+
+            if (shouldDelete)
+            {
+                _conversations.Remove(conv);
+                _messagesByConversation.Remove(conv.Id);
+                _lastRead.Remove(conv.Id);
+            }
+            else
+            {
+                var updatedConv = new Conversation
+                {
+                    Id = conv.Id,
+                    Type = conv.Type,
+                    Title = conv.Title,
+                    Members = updatedMembers
+                };
+
+                int index = _conversations.IndexOf(conv);
+                _conversations[index] = updatedConv;
+            }
+
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conv.Id, null);
+            return Task.FromResult(true);
         }
 
         /// <summary>
