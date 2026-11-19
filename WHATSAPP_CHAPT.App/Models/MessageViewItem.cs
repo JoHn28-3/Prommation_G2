@@ -74,5 +74,25 @@ namespace WHATSAPP_CHAPT.App.Models
         /// Indique si le nom de l'auteur doit être affiché au-dessus de la bulle (groupe).
         /// </summary>
         public bool ShowAuthorName { get; init; }
+
+        /// <summary>
+        /// Chemin du média attaché (Phase F).
+        /// </summary>
+        public string? MediaPath { get; init; }
+
+        /// <summary>
+        /// Type du média attaché (ex: image, audio, document).
+        /// </summary>
+        public string? MediaType { get; init; }
+
+        /// <summary>
+        /// Taille du média en octets.
+        /// </summary>
+        public long? MediaSize { get; init; }
+
+        /// <summary>
+        /// Indique si le message contient une pièce jointe média.
+        /// </summary>
+        public bool HasMedia => !string.IsNullOrEmpty(MediaPath);
     }
 }

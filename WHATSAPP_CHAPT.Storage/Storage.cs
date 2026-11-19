@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
+using WHATSAPP_CHAPT.Storage.Models;
 
 namespace WHATSAPP_CHAPT.Storage
 {
@@ -145,6 +148,12 @@ namespace WHATSAPP_CHAPT.Storage
                     PublicKey BLOB NOT NULL,
                     AddedAt TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS Peers (
+                    Id TEXT PRIMARY KEY,
+                    Name TEXT NOT NULL,
+                    IpAddress TEXT NOT NULL,
+                    AddedAt TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS ArchivedContacts (
                     Id TEXT PRIMARY KEY,
                     DisplayName TEXT NOT NULL,
@@ -157,15 +166,56 @@ namespace WHATSAPP_CHAPT.Storage
             cmd.ExecuteNonQuery();
         }
 
-        public void InsertIdentity(Guid id, byte[] publicKey)
+        private SqliteCommand CreateCommand()
+        {
+            return _conn.CreateCommand();
+        }
+
+        public async Task<Guid> GetLocalIdAsync()
         {
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO Identities (Id, PublicKey, CreatedAt) VALUES (@id, @pk, @now);";
+            cmd.CommandText = "SELECT Id FROM Identities LIMIT 1";
+            var result = await cmd.ExecuteScalarAsync();
+            if (result != null && Guid.TryParse(result.ToString(), out var guid))
+            {
+                return guid;
+            }
+
+            return Guid.NewGuid();
+        }
+
+        public void InsertContact(Guid id, string displayName, byte[] publicKey)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO Contacts (Id, DisplayName, PublicKey, AddedAt) VALUES (@id, @name, @pk, @now);";
             cmd.Parameters.AddWithValue("@id", id.ToString("d"));
+            cmd.Parameters.AddWithValue("@name", displayName);
             cmd.Parameters.AddWithValue("@pk", publicKey);
             cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
             cmd.ExecuteNonQuery();
         }
+
+        public void ArchiveContact(Guid id)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO ArchivedContacts (Id, DisplayName, PublicKey, AddedAt, IsArchived) SELECT Id, DisplayName, PublicKey, AddedAt, 1 FROM Contacts WHERE Id = @id;";
+            cmd.Parameters.AddWithValue("@id", id.ToString("d"));
+            cmd.ExecuteNonQuery();
+            // Optionally delete from Contacts
+            cmd.CommandText = "DELETE FROM Contacts WHERE Id = @id;";
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UnarchiveContact(Guid id)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO Contacts (Id, DisplayName, PublicKey, AddedAt) SELECT Id, DisplayName, PublicKey, AddedAt FROM ArchivedContacts WHERE Id = @id;";
+            cmd.Parameters.AddWithValue("@id", id.ToString("d"));
+            cmd.ExecuteNonQuery();
+            cmd.CommandText = "DELETE FROM ArchivedContacts WHERE Id = @id;";
+            cmd.ExecuteNonQuery();
+        }
+
 
         /// <summary>
         /// Insert or replace a peer record.
@@ -179,6 +229,44 @@ namespace WHATSAPP_CHAPT.Storage
             cmd.Parameters.AddWithValue("@ip", ipAddress);
             cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
             cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Récupère la liste des pairs enregistrés.
+        /// </summary>
+        public List<Peer> GetPeers()
+        {
+            var list = new List<Peer>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT Id, Name, IpAddress, AddedAt FROM Peers";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(new Peer
+                {
+                    Id = Guid.Parse(reader.GetString(0)),
+                    Name = reader.GetString(1),
+                    IpAddress = reader.GetString(2),
+                    AddedAt = DateTimeOffset.Parse(reader.GetString(3))
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Récupère les noms des contacts archivés.
+        /// </summary>
+        public List<string> GetArchivedContacts()
+        {
+            var list = new List<string>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT DisplayName FROM ArchivedContacts";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(reader.GetString(0));
+            }
+            return list;
         }
 
         public void Dispose()

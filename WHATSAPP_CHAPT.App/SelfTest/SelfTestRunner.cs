@@ -27,9 +27,49 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 Phase7ATests.Run(results);
             }
 
+            if (normalizedPhase == "b" || normalizedPhase == "all")
+            {
+                Phase7BTests.Run(results);
+            }
+
             if (normalizedPhase == "c" || normalizedPhase == "all")
             {
                 Phase7CTests.Run(results);
+            }
+
+            if (normalizedPhase == "d" || normalizedPhase == "all")
+            {
+                Phase7DTests.Run(results);
+            }
+
+            if (normalizedPhase == "e" || normalizedPhase == "all")
+            {
+                Phase7ETests.Run(results);
+            }
+
+            if (normalizedPhase == "f" || normalizedPhase == "all")
+            {
+                Phase7FTests.Run(results);
+            }
+
+            if (normalizedPhase == "g" || normalizedPhase == "all")
+            {
+                Phase7GTests.Run(results);
+            }
+
+            if (normalizedPhase == "h" || normalizedPhase == "all")
+            {
+                Phase7HTests.Run(results);
+            }
+
+            if (normalizedPhase == "i" || normalizedPhase == "all")
+            {
+                Phase7ITests.Run(results);
+            }
+
+            if (normalizedPhase == "j" || normalizedPhase == "all")
+            {
+                Phase7JTests.Run(results);
             }
 
             int total = results.Count;

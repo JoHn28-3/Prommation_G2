@@ -54,5 +54,20 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Référence au message auquel il répond (null si aucun).
         /// </summary>
         public Guid? ReplyToMessageId { get; set; }
+
+        /// <summary>
+        /// Chemin d'accès au fichier média associé (image, audio, document).
+        /// </summary>
+        public string? MediaPath { get; set; }
+
+        /// <summary>
+        /// Type MIME ou catégorie de média (ex: image, audio, document).
+        /// </summary>
+        public string? MediaType { get; set; }
+
+        /// <summary>
+        /// Taille du fichier média en octets.
+        /// </summary>
+        public long? MediaSize { get; set; }
     }
 }

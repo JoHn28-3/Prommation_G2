@@ -15,6 +15,11 @@ namespace WHATSAPP_CHAPT.App.Services
         Task<(bool Success, string RemoteId)> ConnectAsync(string ip, int port = 5000);
 
         /// <summary>
+        /// Retourne l’identifiant local persistant stocké dans la base.
+        /// </summary>
+        Task<Guid> GetLocalIdAsync();
+
+        /// <summary>
         /// Lance l'écoute UDP de découverte sur le port 45454.
         /// L'événement <c>Discovered</c> est déclenché lorsqu'un packet est reçu.
         /// </summary>

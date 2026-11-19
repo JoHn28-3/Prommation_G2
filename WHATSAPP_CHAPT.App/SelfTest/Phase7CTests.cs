@@ -86,7 +86,7 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 if (!ok) throw new Exception("AddMemberAsync a échoué pour admin");
                 // Vérifier présence
                 var refreshed = service.GetConversationAsync(conv.Id).GetAwaiter().GetResult();
-                if (!refreshed.MemberIds.Contains(newMember)) throw new Exception("Membre non ajouté");
+                if (refreshed == null || !refreshed.MemberIds.Contains(newMember)) throw new Exception("Membre non ajouté");
             }, results);
 
             Test("GroupRules_AjoutParMembreSimpleRefuse", () =>
@@ -121,7 +121,7 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 var ok = service.RemoveMemberAsync(conv.Id, target).GetAwaiter().GetResult();
                 if (!ok) throw new Exception("RemoveMemberAsync a échoué pour admin");
                 var refreshed = service.GetConversationAsync(conv.Id).GetAwaiter().GetResult();
-                if (refreshed.MemberIds.Contains(target)) throw new Exception("Membre toujours présent après retrait");
+                if (refreshed != null && refreshed.MemberIds.Contains(target)) throw new Exception("Membre toujours présent après retrait");
             }, results);
 
             Test("GroupRules_RetraitAdminRefuse", () =>
@@ -177,7 +177,7 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 var ok = service.AddMemberAsync(conv.Id, newMember).GetAwaiter().GetResult();
                 if (!ok) throw new Exception("AddMemberAsync a échoué");
                 var refreshed = service.GetConversationAsync(conv.Id).GetAwaiter().GetResult();
-                if (!refreshed.MemberIds.Contains(newMember)) throw new Exception("Membre ajouté absent");
+                if (refreshed == null || !refreshed.MemberIds.Contains(newMember)) throw new Exception("Membre ajouté absent");
             }, results);
 
             Test("DemoChatService_RetraitMembre", () =>
@@ -189,7 +189,7 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 var ok = service.RemoveMemberAsync(conv.Id, target).GetAwaiter().GetResult();
                 if (!ok) throw new Exception("RemoveMemberAsync a échoué");
                 var refreshed = service.GetConversationAsync(conv.Id).GetAwaiter().GetResult();
-                if (refreshed.MemberIds.Contains(target)) throw new Exception("Membre toujours présent après retrait");
+                if (refreshed != null && refreshed.MemberIds.Contains(target)) throw new Exception("Membre toujours présent après retrait");
             }, results);
 
             Test("DemoChatService_DepartMembre", () =>

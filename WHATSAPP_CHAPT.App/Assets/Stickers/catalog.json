@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "stickers": [
+    {
+      "id": "stk001",
+      "name": "Pouce haut",
+      "path": "Assets/Stickers/thumbsup.png",
+      "category": "Réactions"
+    },
+    {
+      "id": "stk002",
+      "name": "Cœur",
+      "path": "Assets/Stickers/heart.png",
+      "category": "Réactions"
+    },
+    {
+      "id": "stk003",
+      "name": "Rire",
+      "path": "Assets/Stickers/laugh.png",
+      "category": "Expressions"
+    },
+    {
+      "id": "stk004",
+      "name": "Triste",
+      "path": "Assets/Stickers/sad.png",
+      "category": "Expressions"
+    },
+    {
+      "id": "stk005",
+      "name": "Surprise",
+      "path": "Assets/Stickers/surprised.png",
+      "category": "Expressions"
+    }
+  ]
+}

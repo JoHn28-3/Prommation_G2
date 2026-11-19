@@ -31,5 +31,10 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Identifiants des membres de la conversation.
         /// </summary>
         public IReadOnlyList<Guid> MemberIds => Members.Select(m => m.UserId).ToList();
+
+        /// <summary>
+        /// Indique si la conversation est archivée (Phase I).
+        /// </summary>
+        public bool IsArchived { get; set; }
     }
 }

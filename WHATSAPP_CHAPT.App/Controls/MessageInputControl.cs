@@ -18,6 +18,9 @@ namespace WHATSAPP_CHAPT.App.Controls
     {
         private readonly TextBox _textBox;
         private readonly Label _placeholderLabel;
+        private readonly Button _emojiButton;
+        private readonly Button _attachmentButton;
+        private readonly Button _voiceButton;
         private MessageViewItem? _replyTarget;
         private MessageViewItem? _editTarget;
 
@@ -45,6 +48,9 @@ namespace WHATSAPP_CHAPT.App.Controls
         /// Événement déclenché lors de l'annulation du mode modification.
         /// </summary>
         public event Action? EditCancelled;
+        public event Action<string>? AttachmentRequested;
+        public event Action? EmojiRequested;
+        public event Action? VoiceRequested;
 
         /// <summary>
         /// Indique si le contrôle est actuellement en mode modification de message.
@@ -130,10 +136,38 @@ namespace WHATSAPP_CHAPT.App.Controls
             };
             _placeholderLabel.Click += (s, e) => _textBox.Focus();
 
+            _emojiButton = CreateToolButton("☺", "Emojis", (s, e) => EmojiRequested?.Invoke());
+            _attachmentButton = CreateToolButton("📎", "Joindre un fichier, une photo, une vidéo ou un audio", OnAttachmentClicked);
+            _voiceButton = CreateToolButton("🎙", "Enregistrer un message vocal", (s, e) => VoiceRequested?.Invoke());
+
             Controls.Add(_placeholderLabel);
             Controls.Add(_textBox);
+            Controls.Add(_emojiButton);
+            Controls.Add(_attachmentButton);
+            Controls.Add(_voiceButton);
 
             AdjustLayoutAndHeight();
+        }
+
+        private static Button CreateToolButton(string text, string tooltip, EventHandler handler)
+        {
+            var button = new Button
+            {
+                Text = text, FlatStyle = FlatStyle.Flat, BackColor = Theme.Header,
+                ForeColor = Theme.TextPrimary, Font = new Font("Segoe UI Emoji", 12f),
+                Cursor = Cursors.Hand, TabStop = false, Size = new Size(32, 32)
+            };
+            button.FlatAppearance.BorderSize = 0;
+            new ToolTip().SetToolTip(button, tooltip);
+            button.Click += handler;
+            return button;
+        }
+
+        private void OnAttachmentClicked(object? sender, EventArgs e)
+        {
+            using var menu = new AttachmentMenu();
+            menu.AttachmentRequested += (s, kind) => AttachmentRequested?.Invoke(kind);
+            menu.Show(_attachmentButton, new Point(0, -menu.PreferredSize.Height));
         }
 
         private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
@@ -296,7 +330,10 @@ namespace WHATSAPP_CHAPT.App.Controls
             bool showBanner = _replyTarget != null || _editTarget != null;
             int replyHeight = showBanner ? LogicalToDeviceUnits(46) : 0;
 
-            int containerWidth = Math.Max(LogicalToDeviceUnits(100), Width - (padH * 2) - sendBtnSize - gap);
+            int toolSize = LogicalToDeviceUnits(32);
+            int toolGap = LogicalToDeviceUnits(4);
+            int toolsWidth = (toolSize * 3) + (toolGap * 2) + gap;
+            int containerWidth = Math.Max(LogicalToDeviceUnits(100), Width - (padH * 2) - sendBtnSize - gap - toolsWidth);
             int textInnerPadH = LogicalToDeviceUnits(12);
             int textInnerPadV = LogicalToDeviceUnits(8);
             int textBoxWidth = Math.Max(LogicalToDeviceUnits(80), containerWidth - (textInnerPadH * 2));
@@ -341,10 +378,18 @@ namespace WHATSAPP_CHAPT.App.Controls
             }
 
             int inputY = currentY + padV;
-            _inputContainerRect = new Rectangle(padH, inputY, containerWidth, containerHeight);
+            _inputContainerRect = new Rectangle(padH + toolsWidth, inputY, containerWidth, containerHeight);
 
             int sendBtnY = inputY + (containerHeight - sendBtnSize) / 2;
-            _sendButtonRect = new Rectangle(padH + containerWidth + gap, sendBtnY, sendBtnSize, sendBtnSize);
+            _sendButtonRect = new Rectangle(_inputContainerRect.Right + gap, sendBtnY, sendBtnSize, sendBtnSize);
+
+            int toolY = inputY + (containerHeight - toolSize) / 2;
+            _emojiButton.Bounds = new Rectangle(padH, toolY, toolSize, toolSize);
+            _attachmentButton.Bounds = new Rectangle(padH + toolSize + toolGap, toolY, toolSize, toolSize);
+            _voiceButton.Bounds = new Rectangle(padH + (toolSize + toolGap) * 2, toolY, toolSize, toolSize);
+            _emojiButton.Enabled = Enabled;
+            _attachmentButton.Enabled = Enabled;
+            _voiceButton.Enabled = Enabled;
 
             // Positionnement du TextBox et du Placeholder
             _textBox.Bounds = new Rectangle(
@@ -531,6 +576,9 @@ namespace WHATSAPP_CHAPT.App.Controls
                 _fontReplyName.Dispose();
                 _fontReplyText.Dispose();
                 _fontClose.Dispose();
+                _emojiButton.Dispose();
+                _attachmentButton.Dispose();
+                _voiceButton.Dispose();
             }
 
             base.Dispose(disposing);

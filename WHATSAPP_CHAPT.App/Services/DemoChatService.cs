@@ -337,8 +337,8 @@ namespace WHATSAPP_CHAPT.App.Services
             add
             {
                 _chatEventRaised += value;
-                if (_lastChatEvent != null)
-                    value(this, _lastChatEvent);
+                if (value != null && _lastChatEvent is { } lastChatEvent)
+                    value(this, lastChatEvent);
             }
             remove => _chatEventRaised -= value;
         }
@@ -598,6 +598,16 @@ namespace WHATSAPP_CHAPT.App.Services
 
             _messagesByConversation[conv.Id].Add(msg);
             RaiseChatEvent(ChatEventType.MessageAdded, conv.Id, msg.Id);
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> ArchiveConversationAsync(Guid conversationId, bool isArchived)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null) return false;
+            conv.IsArchived = isArchived;
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return await Task.FromResult(true);
         }
     }
 }

@@ -28,7 +28,10 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly AvatarCache _headerAvatarCache;
         private readonly Dictionary<Guid, string> _drafts = new();
 
+        private NavigationBar? _navBar;
+
         private readonly Panel _leftPanel;
+
         private readonly Panel _headerPanel;
         private readonly Panel? _demoPanel;
         private readonly Panel _searchPanel;
@@ -37,6 +40,9 @@ namespace WHATSAPP_CHAPT.App.Forms
 
         private readonly Panel _rightPanel;
         private readonly Panel _rightHeaderPanel;
+        private readonly Panel _inChatSearchPanel;
+        private readonly TextBox _inChatSearchTextBox;
+        private readonly NotifyIcon _notifyIcon;
         private readonly MessageListControl _messageListControl;
         private readonly MessageInputControl _inputControl;
         private readonly Panel _statusBannerPanel;
@@ -209,6 +215,39 @@ namespace WHATSAPP_CHAPT.App.Forms
             };
             _rightHeaderPanel.Paint += OnRightHeaderPanelPaint;
 
+            var btnCallVideo = new Button
+            {
+                Text = "📹",
+                Font = new Font("Segoe UI", 12f),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Theme.Header,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(LogicalToDeviceUnits(36), LogicalToDeviceUnits(36)),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Cursor = Cursors.Hand
+            };
+            btnCallVideo.Location = new Point(_rightHeaderPanel.Width - LogicalToDeviceUnits(48), (_rightHeaderPanel.Height - LogicalToDeviceUnits(36)) / 2);
+            btnCallVideo.FlatAppearance.BorderSize = 0;
+            btnCallVideo.Click += (s, e) => StartCall(CallType.Video);
+
+            var btnCallAudio = new Button
+            {
+                Text = "📞",
+                Font = new Font("Segoe UI", 12f),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Theme.Header,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(LogicalToDeviceUnits(36), LogicalToDeviceUnits(36)),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Cursor = Cursors.Hand
+            };
+            btnCallAudio.Location = new Point(_rightHeaderPanel.Width - LogicalToDeviceUnits(90), (_rightHeaderPanel.Height - LogicalToDeviceUnits(36)) / 2);
+            btnCallAudio.FlatAppearance.BorderSize = 0;
+            btnCallAudio.Click += (s, e) => StartCall(CallType.Audio);
+
+            _rightHeaderPanel.Controls.Add(btnCallVideo);
+            _rightHeaderPanel.Controls.Add(btnCallAudio);
+
             // Contrôle d'affichage des messages
             _messageListControl = new MessageListControl
             {
@@ -227,6 +266,9 @@ namespace WHATSAPP_CHAPT.App.Forms
             _inputControl.SendRequested += OnSendRequested;
             _inputControl.EditRequested += OnEditRequested;
             _inputControl.EditCancelled += OnEditCancelled;
+            _inputControl.AttachmentRequested += OnAttachmentRequested;
+            _inputControl.EmojiRequested += OnEmojiRequested;
+            _inputControl.VoiceRequested += OnVoiceRequested;
 
             // Bandeau inférieur d'information et d'erreur
             _statusBannerPanel = new Panel
@@ -255,17 +297,145 @@ namespace WHATSAPP_CHAPT.App.Forms
                 _statusBannerPanel.Visible = false;
             };
 
+            // Barre de recherche Ctrl+F dans la discussion courante
+            _inChatSearchPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = LogicalToDeviceUnits(36),
+                BackColor = Theme.Header,
+                Visible = false,
+                Padding = new Padding(LogicalToDeviceUnits(8), LogicalToDeviceUnits(4), LogicalToDeviceUnits(8), LogicalToDeviceUnits(4))
+            };
+
+            _inChatSearchTextBox = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.SearchBackground,
+                ForeColor = Theme.TextPrimary,
+                Font = new Font("Segoe UI", 9.5f),
+                BorderStyle = BorderStyle.None,
+                PlaceholderText = "Rechercher dans cette discussion... (Échap pour fermer)"
+            };
+            _inChatSearchTextBox.TextChanged += (s, e) => _messageListControl.SetSearchQuery(_inChatSearchTextBox.Text);
+
+            var btnCloseSearch = new Button
+            {
+                Text = "✕",
+                Dock = DockStyle.Right,
+                Width = LogicalToDeviceUnits(28),
+                BackColor = Theme.Header,
+                ForeColor = Theme.TextSecondary,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnCloseSearch.FlatAppearance.BorderSize = 0;
+            btnCloseSearch.Click += (s, e) =>
+            {
+                _inChatSearchPanel.Visible = false;
+                _inChatSearchTextBox.Clear();
+                _messageListControl.SetSearchQuery(null);
+            };
+
+            _inChatSearchPanel.Controls.Add(_inChatSearchTextBox);
+            _inChatSearchPanel.Controls.Add(btnCloseSearch);
+
+            _notifyIcon = new NotifyIcon
+            {
+                Text = "WHATSAPP",
+                Icon = SystemIcons.Application,
+                Visible = true
+            };
+
+            KeyPreview = true;
+            KeyDown += OnMainFormKeyDown;
+
             _rightPanel.Controls.Add(_messageListControl);
             _rightPanel.Controls.Add(_inputControl);
             _rightPanel.Controls.Add(_statusBannerPanel);
+            _rightPanel.Controls.Add(_inChatSearchPanel);
             _rightPanel.Controls.Add(_rightHeaderPanel);
 
             // Ajout des panneaux principaux
             Controls.Add(_rightPanel);
             Controls.Add(_leftPanel);
 
+            // Barre de navigation verticale (dockée à gauche, avant _leftPanel)
+            _navBar = new NavigationBar();
+            _navBar.SectionSelected += NavBar_SectionSelected;
+            Controls.Add(_navBar);
+
+            // Menu principal d'actions (Nouveau groupe, Nouveau contact, Paramètres)
+            var menuMain = new ContextMenuStrip
+            {
+                BackColor = Theme.Header,
+                ForeColor = Theme.TextPrimary,
+                Renderer = new ThemeContextMenuRenderer()
+            };
+
+            var miNewGroup = new ToolStripMenuItem("Nouveau groupe...");
+            miNewGroup.Click += async (s, e) => await OpenNewGroupDialogAsync();
+
+            var miNewContact = new ToolStripMenuItem("Nouveau contact (P2P)...");
+            miNewContact.Click += (s, e) => OpenNewContactDialog();
+
+            var miSettings = new ToolStripMenuItem("Paramètres...");
+            miSettings.Click += (s, e) => OpenSettingsDialog();
+
+            var miEphemeral = new ToolStripMenuItem("Messages éphémères");
+            foreach (var option in new[] { "Désactivés", "24 heures", "7 jours", "90 jours" })
+            {
+                var optionItem = new ToolStripMenuItem(option);
+                optionItem.Click += (s, e) => ShowStatusMessage($"Messages éphémères : {option}");
+                miEphemeral.DropDownItems.Add(optionItem);
+            }
+
+            menuMain.Items.Add(miNewGroup);
+            menuMain.Items.Add(miNewContact);
+            menuMain.Items.Add(miEphemeral);
+            menuMain.Items.Add(new ToolStripSeparator());
+            menuMain.Items.Add(miSettings);
+
+            var btnMenu = new Button
+            {
+                Text = "⋮",
+                Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Theme.Header,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(LogicalToDeviceUnits(30), LogicalToDeviceUnits(30)),
+                Location = new Point(_headerPanel.Width - LogicalToDeviceUnits(76), (_headerPanel.Height - LogicalToDeviceUnits(30)) / 2),
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnMenu.FlatAppearance.BorderSize = 0;
+            btnMenu.Click += (s, e) => menuMain.Show(btnMenu, new Point(0, btnMenu.Height));
+            _headerPanel.Controls.Add(btnMenu);
+
+            _rightHeaderPanel.Cursor = Cursors.Hand;
+            _rightHeaderPanel.Click += async (s, e) => await OpenGroupInfoIfApplicableAsync();
+
             // Abonnement aux événements du service
             _service.ChatEventRaised += OnChatEventRaised;
+        }
+
+        private void NavBar_SectionSelected(string key)
+        {
+            switch (key)
+            {
+                case "discussions":
+                    // Panneau gauche déjà visible – ne rien cacher
+                    break;
+                case "metaai":
+                    // Ouvrir le panneau Meta AI
+                    using (var dlg = new MetaAiForm())
+                    {
+                        dlg.ShowDialog(this);
+                    }
+                    break;
+                default:
+                    ShowStatusMessage($"Section : {key}");
+                    break;
+            }
         }
 
         private void ShowStatusMessage(string message)
@@ -301,6 +471,65 @@ namespace WHATSAPP_CHAPT.App.Forms
                 _inputControl.Text = _drafts.GetValueOrDefault(_selectedConversationId.Value, string.Empty);
             }
             _inputControl.FocusInput();
+        }
+
+        private void OnEmojiRequested()
+        {
+            if (!_inputControl.Enabled) return;
+            _inputControl.Text += (_inputControl.Text.Length == 0 ? string.Empty : " ") + "😀";
+            _inputControl.FocusInput();
+        }
+
+        private void OnVoiceRequested()
+        {
+            ShowStatusMessage("Enregistrement vocal local prêt — appuyez sur envoyer pour l’ajouter à la discussion.");
+            _inputControl.Text = string.IsNullOrWhiteSpace(_inputControl.Text)
+                ? "[Message vocal]"
+                : _inputControl.Text + " [Message vocal]";
+            _inputControl.FocusInput();
+        }
+
+        private async void OnAttachmentRequested(string kind)
+        {
+            if (!_selectedConversationId.HasValue) return;
+
+            string filter = kind switch
+            {
+                "image" or "photo" => "Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp",
+                "video" => "Vidéos|*.mp4;*.avi;*.mov;*.mkv|Tous les fichiers|*.*",
+                "audio" or "voicerecord" => "Audio|*.mp3;*.wav;*.m4a;*.ogg;*.flac",
+                _ => "Tous les fichiers|*.*"
+            };
+
+            using var dialog = new OpenFileDialog { Filter = filter, Title = "Choisir un fichier à joindre" };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            string label = kind switch
+            {
+                "image" or "photo" => "Image",
+                "video" => "Vidéo",
+                "audio" or "voicerecord" => "Audio",
+                "sticker" => "Sticker",
+                _ => "Document"
+            };
+            string text = $"[{label}] {System.IO.Path.GetFileName(dialog.FileName)}";
+            await SendLocalAttachmentMessageAsync(text);
+        }
+
+        private async Task SendLocalAttachmentMessageAsync(string text)
+        {
+            if (!_selectedConversationId.HasValue) return;
+            try
+            {
+                await _service.SendMessageAsync(_selectedConversationId.Value, text);
+                _inputControl.Clear();
+                _messageListControl.ScrollToBottom();
+                ShowStatusMessage("Média ajouté localement à la discussion.");
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                ShowStatusMessage("Impossible d’ajouter ce média.");
+            }
         }
 
         private async void OnSendRequested(string text, Guid? replyToMessageId)
@@ -512,6 +741,15 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Renderer = new ThemeContextMenuRenderer()
             };
 
+            var itemArchive = new ToolStripMenuItem(conv.IsArchived ? "Désarchiver la discussion" : "Archiver la discussion");
+            itemArchive.Click += async (s, e) =>
+            {
+                await _service.ArchiveConversationAsync(conv.Id, !conv.IsArchived);
+                ShowStatusMessage(conv.IsArchived ? "Discussion désarchivée." : "Discussion archivée.");
+                await ReloadConversationsAsync();
+            };
+            contextMenu.Items.Add(itemArchive);
+
             var itemSet = new ToolStripMenuItem("Définir une photo (démo)");
             itemSet.Click += (s, e) =>
             {
@@ -575,20 +813,24 @@ namespace WHATSAPP_CHAPT.App.Forms
 
         private async Task HandleChatEventAsync(ChatEvent e)
         {
-            // Marquage « Lu » immédiat lorsqu'un nouveau message d'un autre auteur arrive
-            // dans la conversation ouverte et que la fenêtre est active.
-            if (e.Type == ChatEventType.MessageAdded &&
-                _selectedConversationId.HasValue &&
-                e.ConversationId == _selectedConversationId.Value &&
-                Form.ActiveForm == this)
+            // Notification et marquage « Lu »
+            if (e.Type == ChatEventType.MessageAdded && e.MessageId.HasValue)
             {
-                if (e.MessageId.HasValue)
+                var messages = await _service.GetMessagesAsync(e.ConversationId);
+                var msg = messages.FirstOrDefault(m => m.Id == e.MessageId.Value);
+                if (msg != null && msg.AuthorId != _service.CurrentUser.Id)
                 {
-                    var messages = await _service.GetMessagesAsync(e.ConversationId);
-                    var msg = messages.FirstOrDefault(m => m.Id == e.MessageId.Value);
-                    if (msg != null && msg.AuthorId != _service.CurrentUser.Id)
+                    if (_selectedConversationId.HasValue &&
+                        e.ConversationId == _selectedConversationId.Value &&
+                        Form.ActiveForm == this)
                     {
                         await _service.MarkConversationReadAsync(_selectedConversationId.Value);
+                    }
+                    else
+                    {
+                        var contacts = await _service.GetContactsAsync();
+                        var author = contacts.FirstOrDefault(c => c.Id == msg.AuthorId)?.DisplayName ?? "Nouveau message";
+                        _notifyIcon.ShowBalloonTip(3000, author, msg.Content, ToolTipIcon.Info);
                     }
                 }
             }
@@ -697,6 +939,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             }
 
             _listControl.SetItems(items, preserveSelection: true);
+            await UpdateWindowTitleAsync();
         }
 
         private async Task LoadMessagesForSelectedConversationAsync(bool isNewConversation = false)
@@ -750,6 +993,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             _selectedHeaderOwnerId = conv.Type == ConversationType.Group ? conv.Id : (otherMember?.UserId ?? conv.Id);
             _selectedHeaderTitle = title;
             _selectedHeaderSubtitle = subtitle;
+            await UpdateWindowTitleAsync();
 
             var rawMessages = await _service.GetMessagesAsync(conversationId);
             var messagesMap = rawMessages.ToDictionary(m => m.Id);
@@ -831,7 +1075,10 @@ namespace WHATSAPP_CHAPT.App.Forms
                     IsDeleted = m.IsDeleted,
                     ReplyAuthorName = replyAuthorName,
                     ReplyPreview = replyPreview,
-                    ShowAuthorName = showAuthorName
+                    ShowAuthorName = showAuthorName,
+                    MediaPath = m.MediaPath,
+                    MediaType = m.MediaType,
+                    MediaSize = m.MediaSize
                 };
 
                 viewItems.Add(viewItem);
@@ -928,11 +1175,137 @@ namespace WHATSAPP_CHAPT.App.Forms
             }
         }
 
+        private async Task OpenNewGroupDialogAsync()
+        {
+            var contacts = await _service.GetContactsAsync();
+            var contactNames = contacts.Select(c => c.DisplayName).ToList();
+            using var dlg = new NewGroupForm(contactNames);
+            dlg.GroupCreated += async (s, e) =>
+            {
+                var selectedIds = contacts.Where(c => e.Members.Contains(c.DisplayName)).Select(c => c.Id).ToList();
+                var created = await _service.CreateGroupAsync(e.Title, selectedIds);
+                await ReloadConversationsAsync();
+                OnConversationSelected(this, created.Id);
+                ShowStatusMessage($"Groupe « {created.Title} » créé avec succès.");
+            };
+            dlg.ShowDialog(this);
+        }
+
+        private void OpenNewContactDialog()
+        {
+            using var dlg = new NewContactForm();
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                ShowStatusMessage($"Contact P2P « {dlg.ContactName} » ({dlg.IpAddress}) ajouté.");
+            }
+        }
+
+        private void OpenSettingsDialog()
+        {
+            using var dlg = new SettingsForm(_service.CurrentUser.DisplayName, "127.0.0.1", _service.CurrentUser.Id, Theme.Accent);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                ShowStatusMessage("Paramètres enregistrés.");
+            }
+        }
+
+        private async Task OpenGroupInfoIfApplicableAsync()
+        {
+            if (!_selectedConversationId.HasValue) return;
+            var conversations = await _service.GetConversationsAsync();
+            var conv = conversations.FirstOrDefault(c => c.Id == _selectedConversationId.Value);
+            if (conv == null || conv.Type != ConversationType.Group) return;
+
+            var contacts = await _service.GetContactsAsync();
+            var contactsMap = contacts.ToDictionary(c => c.Id, c => c.DisplayName);
+            var vm = GroupInfoViewModel.FromConversation(conv, _service.CurrentUser.Id, contactsMap);
+
+            using var form = new GroupInfoForm(vm);
+            form.RemoveMemberRequested += async (s, userId) =>
+            {
+                var ok = await _service.RemoveMemberAsync(conv.Id, userId);
+                if (ok)
+                {
+                    ShowStatusMessage("Membre retiré du groupe.");
+                    await ReloadConversationsAsync();
+                    await LoadMessagesForSelectedConversationAsync();
+                }
+            };
+            form.LeaveGroupRequested += async (s, e) =>
+            {
+                var ok = await _service.LeaveGroupAsync(conv.Id);
+                if (ok)
+                {
+                    _selectedConversationId = null;
+                    await ReloadConversationsAsync();
+                    await LoadMessagesForSelectedConversationAsync();
+                    ShowStatusMessage("Vous avez quitté le groupe.");
+                }
+            };
+            form.ShowDialog(this);
+        }
+
+        private void StartCall(CallType type)
+        {
+            if (string.IsNullOrEmpty(_selectedHeaderTitle)) return;
+            using var dlg = new CallForm(_selectedHeaderTitle, type);
+            dlg.ShowDialog(this);
+        }
+
+        private void OnMainFormKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.F)
+            {
+                if (_selectedConversationId.HasValue)
+                {
+                    _inChatSearchPanel.Visible = true;
+                    _inChatSearchTextBox.Focus();
+                    _inChatSearchTextBox.SelectAll();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            }
+            else if (e.KeyCode == Keys.Escape && _inChatSearchPanel.Visible)
+            {
+                _inChatSearchPanel.Visible = false;
+                _inChatSearchTextBox.Clear();
+                _messageListControl.SetSearchQuery(null);
+                _inputControl.FocusInput();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        private async Task UpdateWindowTitleAsync()
+        {
+            var conversations = await _service.GetConversationsAsync();
+            int totalUnread = 0;
+            foreach (var conv in conversations)
+            {
+                totalUnread += await _service.GetUnreadCountAsync(conv.Id);
+            }
+
+            string? status = null;
+            if (_selectedConversationId.HasValue)
+            {
+                var conv = conversations.FirstOrDefault(c => c.Id == _selectedConversationId.Value);
+                if (conv != null)
+                {
+                    status = conv.Type == ConversationType.Group
+                        ? $"{conv.Members.Count} participants"
+                        : "En ligne";
+                }
+            }
+
+            Text = SelfTest.Phase7ETests.FormatTitle(totalUnread, _selectedHeaderTitle, status);
+        }
+
         /// <inheritdoc/>
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                _notifyIcon.Dispose();
                 _statusBannerTimer.Dispose();
                 _avatars.PhotoChanged -= OnAvatarPhotoChanged;
                 _headerAvatarCache.Dispose();

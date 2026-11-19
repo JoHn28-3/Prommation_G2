@@ -5,6 +5,13 @@
     <ProjectReference Include="..\WHATSAPP_CHAPT.Storage\WHATSAPP_CHAPT.Storage.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Config\groq.settings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Config\groq.settings.example.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets\Emoji\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets\Stickers\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net11.0-windows</TargetFramework>

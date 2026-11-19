@@ -84,6 +84,11 @@ namespace WHATSAPP_CHAPT.Core.Services
         Task<bool> LeaveGroupAsync(Guid conversationId);
 
         /// <summary>
+        /// Archive ou désarchive une conversation (Phase I).
+        /// </summary>
+        Task<bool> ArchiveConversationAsync(Guid conversationId, bool isArchived);
+
+        /// <summary>
         /// Événement levé lorsqu'un événement de chat se produit.
         /// </summary>
         event EventHandler<ChatEvent>? ChatEventRaised;

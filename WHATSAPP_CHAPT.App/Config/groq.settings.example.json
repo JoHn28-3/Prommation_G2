@@ -1,0 +1,5 @@
+{
+  "ApiKey": "COLLER_LA_CLE_ICI",
+  "Model": "llama-3.3-70b-versatile",
+  "BaseUrl": "https://api.groq.com/openai/v1"
+}

@@ -20,6 +20,8 @@ namespace WHATSAPP_CHAPT.App.Controls
         private readonly MessageLayoutEngine _layoutEngine = new();
 
         private IReadOnlyList<MessageViewItem> _messages = Array.Empty<MessageViewItem>();
+        private IReadOnlyList<MessageViewItem> _rawMessages = Array.Empty<MessageViewItem>();
+        private string? _searchQuery;
         private List<MessageLayoutItem> _layoutItems = new();
         private int _totalHeight;
         private int _scrollOffset;
@@ -90,7 +92,8 @@ namespace WHATSAPP_CHAPT.App.Controls
             int maxScrollBefore = Math.Max(0, _totalHeight - Height);
             bool wasAtBottom = isNewConversation || (_scrollOffset >= maxScrollBefore - LogicalToDeviceUnits(30));
 
-            _messages = messages ?? Array.Empty<MessageViewItem>();
+            _rawMessages = messages ?? Array.Empty<MessageViewItem>();
+            ApplySearchFilter();
 
             RecalculateLayout();
 
@@ -113,6 +116,39 @@ namespace WHATSAPP_CHAPT.App.Controls
 
             UpdateScrollbar();
             Invalidate();
+        }
+
+        /// <summary>
+        /// Applique un filtre de recherche instantanée sur les messages (Ctrl+F).
+        /// </summary>
+        public void SetSearchQuery(string? query)
+        {
+            _searchQuery = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
+            ApplySearchFilter();
+            RecalculateLayout();
+            UpdateScrollbar();
+            Invalidate();
+        }
+
+        private void ApplySearchFilter()
+        {
+            if (string.IsNullOrEmpty(_searchQuery))
+            {
+                _messages = _rawMessages;
+            }
+            else
+            {
+                var q = _searchQuery;
+                var filtered = new List<MessageViewItem>();
+                foreach (var m in _rawMessages)
+                {
+                    if (!m.IsDeleted && m.Text.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    {
+                        filtered.Add(m);
+                    }
+                }
+                _messages = filtered;
+            }
         }
 
         private void RecalculateLayout()
@@ -406,6 +442,20 @@ namespace WHATSAPP_CHAPT.App.Controls
                 var replyPreviewRect = new Rectangle(innerReplyX, rRect.Y + halfH, innerReplyW, halfH - LogicalToDeviceUnits(2));
                 Color replyTextColor = bubble.Message.IsMine ? Theme.OutgoingText : Theme.TextSecondary;
                 TextRenderer.DrawText(g, bubble.Message.ReplyPreview, _fontReplyText, replyPreviewRect, replyTextColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
+
+            // 2b. Zone de média attachée (Phase F)
+            if (bubble.Message.HasMedia && !bubble.MediaBounds.IsEmpty)
+            {
+                var mRect = new Rectangle(bubble.MediaBounds.X, bubble.MediaBounds.Y - offset, bubble.MediaBounds.Width, bubble.MediaBounds.Height);
+                Color mediaBg = Color.FromArgb(40, 0, 0, 0);
+                DrawRoundedRectangle(g, mRect, LogicalToDeviceUnits(4), mediaBg);
+
+                string mediaFileName = System.IO.Path.GetFileName(bubble.Message.MediaPath) ?? "Fichier";
+                string mediaLabel = bubble.Message.MediaType == "image" ? $"📷 {mediaFileName}" : $"📎 {mediaFileName}";
+
+                TextRenderer.DrawText(g, mediaLabel, _fontRegular, mRect, Theme.Accent,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             }
 

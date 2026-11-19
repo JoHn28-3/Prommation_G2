@@ -70,6 +70,11 @@ namespace WHATSAPP_CHAPT.App.Drawing
         public Rectangle ReplyBounds { get; set; }
 
         /// <summary>
+        /// Rectangle de la zone média attachée.
+        /// </summary>
+        public Rectangle MediaBounds { get; set; }
+
+        /// <summary>
         /// Rectangle du corps du texte.
         /// </summary>
         public Rectangle TextBounds { get; set; }
@@ -226,6 +231,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
 
                     int authorHeight = msg.ShowAuthorName ? deviceUnitsConverter(16) : 0;
                     int replyHeight = !string.IsNullOrEmpty(msg.ReplyPreview) ? deviceUnitsConverter(32) : 0;
+                    int mediaHeight = msg.HasMedia ? deviceUnitsConverter(36) : 0;
                     int timeHeight = deviceUnitsConverter(14);
 
                     int contentWidth = measuredSize.Width;
@@ -246,11 +252,17 @@ namespace WHATSAPP_CHAPT.App.Drawing
                         contentWidth = Math.Max(contentWidth, deviceUnitsConverter(160));
                     }
 
+                    if (msg.HasMedia)
+                    {
+                        contentWidth = Math.Max(contentWidth, deviceUnitsConverter(180));
+                    }
+
                     contentWidth = Math.Max(contentWidth, timeRowWidth);
 
                     int bWidth = Math.Min(maxBubbleWidth, contentWidth + (padH * 2));
                     int bHeight = (padV * 2) + authorHeight + (authorHeight > 0 ? gap : 0)
                                             + replyHeight + (replyHeight > 0 ? gap : 0)
+                                            + mediaHeight + (mediaHeight > 0 ? gap : 0)
                                             + measuredSize.Height + gap + timeHeight;
 
                     cachedSize = (bWidth, bHeight, measuredSize);
@@ -292,6 +304,13 @@ namespace WHATSAPP_CHAPT.App.Drawing
                     int replyH = deviceUnitsConverter(32);
                     bubbleItem.ReplyBounds = new Rectangle(innerX, innerY, bubbleWidth - (padH * 2), replyH);
                     innerY += replyH + gap;
+                }
+
+                if (msg.HasMedia)
+                {
+                    int mediaH = deviceUnitsConverter(36);
+                    bubbleItem.MediaBounds = new Rectangle(innerX, innerY, bubbleWidth - (padH * 2), mediaH);
+                    innerY += mediaH + gap;
                 }
 
                 bubbleItem.TextBounds = new Rectangle(innerX, innerY, bubbleWidth - (padH * 2), cachedSize.TextSize.Height);
