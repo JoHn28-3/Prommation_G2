@@ -5,6 +5,13 @@
 
 selftest-report.txt
 
+# Agent instructions and documentation
+docs/
+AGENTS.md
+.github/
+next-phase.md
+
+
 # dotenv files
 .env
 
