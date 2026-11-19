@@ -80,6 +80,11 @@ namespace WHATSAPP_CHAPT.App.Drawing
         public static readonly Color OutgoingMeta = Color.FromArgb(0x0B, 0x4A, 0x68);
 
         /// <summary>
+        /// Fond d'une citation dans une bulle de message sortant (opacité réduite).
+        /// </summary>
+        public static readonly Color BubbleOutgoingReplyBackground = Color.FromArgb(40, 0x0B, 0x4A, 0x68);
+
+        /// <summary>
         /// Coche de message lu (#FFFFFF).
         /// </summary>
         public static readonly Color TickRead = Color.FromArgb(0xFF, 0xFF, 0xFF);

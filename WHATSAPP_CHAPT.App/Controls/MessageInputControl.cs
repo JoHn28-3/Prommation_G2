@@ -19,6 +19,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         private readonly TextBox _textBox;
         private readonly Label _placeholderLabel;
         private MessageViewItem? _replyTarget;
+        private MessageViewItem? _editTarget;
 
         private Rectangle _replyBannerRect;
         private Rectangle _replyCloseButtonRect;
@@ -34,6 +35,23 @@ namespace WHATSAPP_CHAPT.App.Controls
         /// Événement déclenché lors d'une demande d'envoi de message.
         /// </summary>
         public event Action<string, Guid?>? SendRequested;
+
+        /// <summary>
+        /// Événement déclenché lors d'une demande de modification d'un message existant.
+        /// </summary>
+        public event Action<Guid, string>? EditRequested;
+
+        /// <summary>
+        /// Événement déclenché lors de l'annulation du mode modification.
+        /// </summary>
+        public event Action? EditCancelled;
+
+        /// <summary>
+        /// Indique si le contrôle est actuellement en mode modification de message.
+        /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public bool IsEditing => _editTarget != null;
 
         /// <summary>
         /// Obtient ou définit le texte saisi.
@@ -120,6 +138,24 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
         {
+            if (e.KeyCode == Keys.Escape)
+            {
+                if (_editTarget != null)
+                {
+                    e.SuppressKeyPress = true;
+                    e.Handled = true;
+                    CancelEdit();
+                    return;
+                }
+                if (_replyTarget != null)
+                {
+                    e.SuppressKeyPress = true;
+                    e.Handled = true;
+                    SetReplyTarget(null);
+                    return;
+                }
+            }
+
             if (e.KeyCode == Keys.Enter)
             {
                 if (e.Shift)
@@ -138,8 +174,32 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         private void TriggerSend()
         {
+            if (!Enabled)
+            {
+                return;
+            }
+
+            if (_editTarget != null)
+            {
+                string text = _textBox.Text.Trim();
+                if (string.IsNullOrEmpty(text))
+                {
+                    // Texte vide ou espaces : ignoré (ne supprime pas)
+                    return;
+                }
+                if (text == _editTarget.Text)
+                {
+                    // Texte inchangé : quitte simplement le mode
+                    CancelEdit();
+                    return;
+                }
+
+                EditRequested?.Invoke(_editTarget.Id, text);
+                return;
+            }
+
             string content = _textBox.Text.Trim();
-            if (!string.IsNullOrEmpty(content) && Enabled)
+            if (!string.IsNullOrEmpty(content))
             {
                 SendRequested?.Invoke(content, _replyTarget?.Id);
             }
@@ -173,9 +233,52 @@ namespace WHATSAPP_CHAPT.App.Controls
         /// <param name="item">Message cible ou null pour annuler la réponse.</param>
         public void SetReplyTarget(MessageViewItem? item)
         {
+            if (item != null && _editTarget != null)
+            {
+                _editTarget = null;
+                EditCancelled?.Invoke();
+            }
+
             _replyTarget = item;
             AdjustLayoutAndHeight();
             Invalidate();
+        }
+
+        /// <summary>
+        /// Active ou masque le mode modification pour un message donné.
+        /// </summary>
+        /// <param name="item">Message à modifier ou null pour annuler.</param>
+        public void SetEditTarget(MessageViewItem? item)
+        {
+            _replyTarget = null;
+            _editTarget = item;
+
+            if (item != null)
+            {
+                _textBox.Text = item.Text;
+                _textBox.SelectionStart = _textBox.Text.Length;
+                _textBox.SelectionLength = 0;
+                UpdatePlaceholderVisibility();
+                AdjustLayoutAndHeight();
+                Invalidate();
+                FocusInput();
+            }
+            else
+            {
+                AdjustLayoutAndHeight();
+                Invalidate();
+            }
+        }
+
+        /// <summary>
+        /// Annule le mode modification et réinitialise la cible.
+        /// </summary>
+        public void CancelEdit()
+        {
+            _editTarget = null;
+            AdjustLayoutAndHeight();
+            Invalidate();
+            EditCancelled?.Invoke();
         }
 
         private void UpdatePlaceholderVisibility()
@@ -190,7 +293,8 @@ namespace WHATSAPP_CHAPT.App.Controls
             int sendBtnSize = LogicalToDeviceUnits(38);
             int gap = LogicalToDeviceUnits(10);
 
-            int replyHeight = _replyTarget != null ? LogicalToDeviceUnits(46) : 0;
+            bool showBanner = _replyTarget != null || _editTarget != null;
+            int replyHeight = showBanner ? LogicalToDeviceUnits(46) : 0;
 
             int containerWidth = Math.Max(LogicalToDeviceUnits(100), Width - (padH * 2) - sendBtnSize - gap);
             int textInnerPadH = LogicalToDeviceUnits(12);
@@ -223,7 +327,7 @@ namespace WHATSAPP_CHAPT.App.Controls
 
             // Disposition des rectangles
             int currentY = 0;
-            if (_replyTarget != null)
+            if (showBanner)
             {
                 _replyBannerRect = new Rectangle(0, 0, Width, replyHeight);
                 int closeSize = LogicalToDeviceUnits(28);
@@ -267,10 +371,18 @@ namespace WHATSAPP_CHAPT.App.Controls
         {
             base.OnMouseDown(e);
 
-            // Clic sur le bouton d'annulation de réponse « × »
-            if (_replyTarget != null && _replyCloseButtonRect.Contains(e.Location))
+            // Clic sur le bouton d'annulation de bandeau « × »
+            bool showBanner = _replyTarget != null || _editTarget != null;
+            if (showBanner && _replyCloseButtonRect.Contains(e.Location))
             {
-                SetReplyTarget(null);
+                if (_editTarget != null)
+                {
+                    CancelEdit();
+                }
+                else
+                {
+                    SetReplyTarget(null);
+                }
                 return;
             }
 
@@ -286,7 +398,8 @@ namespace WHATSAPP_CHAPT.App.Controls
         {
             base.OnMouseMove(e);
 
-            bool isOverClose = _replyTarget != null && _replyCloseButtonRect.Contains(e.Location);
+            bool showBanner = _replyTarget != null || _editTarget != null;
+            bool isOverClose = showBanner && _replyCloseButtonRect.Contains(e.Location);
             bool isOverSend = _sendButtonRect.Contains(e.Location) && !string.IsNullOrWhiteSpace(_textBox.Text);
 
             Cursor = (isOverClose || isOverSend) ? Cursors.Hand : Cursors.Default;
@@ -305,8 +418,8 @@ namespace WHATSAPP_CHAPT.App.Controls
                 g.DrawLine(borderPen, 0, 0, Width, 0);
             }
 
-            // 1. Bandeau de réponse optionnel
-            if (_replyTarget != null && !_replyBannerRect.IsEmpty)
+            // 1. Bandeau optionnel (réponse ou modification)
+            if ((_replyTarget != null || _editTarget != null) && !_replyBannerRect.IsEmpty)
             {
                 using (var brushBg = new SolidBrush(Theme.Hover))
                 {
@@ -333,12 +446,17 @@ namespace WHATSAPP_CHAPT.App.Controls
                 int textW = _replyCloseButtonRect.Left - textX - LogicalToDeviceUnits(8);
                 int halfH = barH / 2;
 
+                string headerText = _editTarget != null ? "Modification du message" : (_replyTarget?.AuthorName ?? string.Empty);
+                string previewRaw = _editTarget != null
+                    ? (_editTarget.IsDeleted ? "Message supprimé" : _editTarget.Text)
+                    : (_replyTarget != null ? (_replyTarget.IsDeleted ? "Message supprimé" : _replyTarget.Text) : string.Empty);
+                string previewText = previewRaw.Replace("\r\n", " ").Replace("\n", " ");
+
                 var nameRect = new Rectangle(textX, barY, textW, halfH);
-                TextRenderer.DrawText(g, _replyTarget.AuthorName, _fontReplyName, nameRect, Theme.Accent,
+                TextRenderer.DrawText(g, headerText, _fontReplyName, nameRect, Theme.Accent,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
                 var previewRect = new Rectangle(textX, barY + halfH, textW, halfH);
-                string previewText = _replyTarget.IsDeleted ? "Message supprimé" : _replyTarget.Text.Replace("\r\n", " ").Replace("\n", " ");
                 TextRenderer.DrawText(g, previewText, _fontReplyText, previewRect, Theme.TextSecondary,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 

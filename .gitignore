@@ -3,6 +3,8 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+selftest-report.txt
+
 # dotenv files
 .env
 

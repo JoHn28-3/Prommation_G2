@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Controls;
 using WHATSAPP_CHAPT.App.Drawing;
+using WHATSAPP_CHAPT.App.Logic;
 using WHATSAPP_CHAPT.App.Models;
 using WHATSAPP_CHAPT.App.Services;
 using WHATSAPP_CHAPT.Core.Events;
@@ -38,6 +39,9 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly Panel _rightHeaderPanel;
         private readonly MessageListControl _messageListControl;
         private readonly MessageInputControl _inputControl;
+        private readonly Panel _statusBannerPanel;
+        private readonly Label _statusBannerLabel;
+        private readonly System.Windows.Forms.Timer _statusBannerTimer;
 
         private Guid? _selectedConversationId;
         private Guid _selectedHeaderOwnerId;
@@ -221,9 +225,39 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Enabled = false
             };
             _inputControl.SendRequested += OnSendRequested;
+            _inputControl.EditRequested += OnEditRequested;
+            _inputControl.EditCancelled += OnEditCancelled;
+
+            // Bandeau inférieur d'information et d'erreur
+            _statusBannerPanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = LogicalToDeviceUnits(32),
+                BackColor = Theme.Header,
+                Visible = false
+            };
+            _statusBannerLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Accent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular)
+            };
+            _statusBannerPanel.Controls.Add(_statusBannerLabel);
+
+            _statusBannerTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 3000
+            };
+            _statusBannerTimer.Tick += (s, e) =>
+            {
+                _statusBannerTimer.Stop();
+                _statusBannerPanel.Visible = false;
+            };
 
             _rightPanel.Controls.Add(_messageListControl);
             _rightPanel.Controls.Add(_inputControl);
+            _rightPanel.Controls.Add(_statusBannerPanel);
             _rightPanel.Controls.Add(_rightHeaderPanel);
 
             // Ajout des panneaux principaux
@@ -232,6 +266,41 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             // Abonnement aux événements du service
             _service.ChatEventRaised += OnChatEventRaised;
+        }
+
+        private void ShowStatusMessage(string message)
+        {
+            _statusBannerLabel.Text = message;
+            _statusBannerPanel.Visible = true;
+            _statusBannerTimer.Stop();
+            _statusBannerTimer.Start();
+        }
+
+        private async void OnEditRequested(Guid messageId, string newContent)
+        {
+            bool ok = await _service.EditMessageAsync(messageId, newContent);
+            if (ok)
+            {
+                _inputControl.SetEditTarget(null);
+                if (_selectedConversationId.HasValue)
+                {
+                    _inputControl.Text = _drafts.GetValueOrDefault(_selectedConversationId.Value, string.Empty);
+                }
+                _inputControl.FocusInput();
+            }
+            else
+            {
+                ShowStatusMessage("Modification impossible.");
+            }
+        }
+
+        private void OnEditCancelled()
+        {
+            if (_selectedConversationId.HasValue)
+            {
+                _inputControl.Text = _drafts.GetValueOrDefault(_selectedConversationId.Value, string.Empty);
+            }
+            _inputControl.FocusInput();
         }
 
         private async void OnSendRequested(string text, Guid? replyToMessageId)
@@ -296,6 +365,12 @@ namespace WHATSAPP_CHAPT.App.Forms
                 IsDeleted = msg.IsDeleted
             };
 
+            var actions = MessageActions.GetAvailableActions(viewItem);
+            if (actions.Count == 0)
+            {
+                return;
+            }
+
             var contextMenu = new ContextMenuStrip
             {
                 BackColor = Theme.Header,
@@ -303,14 +378,79 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Renderer = new ThemeContextMenuRenderer()
             };
 
-            var itemReply = new ToolStripMenuItem("Répondre");
-            itemReply.Click += (s, e) =>
+            if (actions.Contains(MessageAction.Reply))
             {
-                _inputControl.SetReplyTarget(viewItem);
-                _inputControl.FocusInput();
-            };
+                var itemReply = new ToolStripMenuItem("Répondre");
+                itemReply.Click += (s, e) =>
+                {
+                    if (_inputControl.IsEditing)
+                    {
+                        _inputControl.SetEditTarget(null);
+                    }
+                    _inputControl.SetReplyTarget(viewItem);
+                    _inputControl.FocusInput();
+                };
+                contextMenu.Items.Add(itemReply);
+            }
 
-            contextMenu.Items.Add(itemReply);
+            if (actions.Contains(MessageAction.Copy))
+            {
+                var itemCopy = new ToolStripMenuItem("Copier");
+                itemCopy.Click += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(viewItem.Text))
+                    {
+                        try
+                        {
+                            Clipboard.SetText(viewItem.Text);
+                        }
+                        catch
+                        {
+                            // Accès au presse-papiers ignoré
+                        }
+                    }
+                };
+                contextMenu.Items.Add(itemCopy);
+            }
+
+            if (actions.Contains(MessageAction.Edit))
+            {
+                var itemEdit = new ToolStripMenuItem("Modifier");
+                itemEdit.Click += (s, e) =>
+                {
+                    if (_selectedConversationId.HasValue && !_inputControl.IsEditing)
+                    {
+                        _drafts[_selectedConversationId.Value] = _inputControl.Text;
+                    }
+                    _inputControl.SetEditTarget(viewItem);
+                };
+                contextMenu.Items.Add(itemEdit);
+            }
+
+            if (actions.Contains(MessageAction.Delete))
+            {
+                var itemDelete = new ToolStripMenuItem("Supprimer pour moi");
+                itemDelete.Click += async (s, e) =>
+                {
+                    var confirm = MessageBox.Show(
+                        this,
+                        "Ce message sera supprimé uniquement sur cet appareil.",
+                        "Supprimer le message",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Warning);
+
+                    if (confirm == DialogResult.OK)
+                    {
+                        bool ok = await _service.DeleteMessageAsync(viewItem.Id);
+                        if (!ok)
+                        {
+                            ShowStatusMessage("Suppression impossible.");
+                        }
+                    }
+                };
+                contextMenu.Items.Add(itemDelete);
+            }
+
             contextMenu.Show(_messageListControl, position);
         }
 
@@ -462,7 +602,11 @@ namespace WHATSAPP_CHAPT.App.Forms
 
         private async void OnConversationSelected(object? sender, Guid conversationId)
         {
-            if (_selectedConversationId.HasValue)
+            if (_inputControl.IsEditing)
+            {
+                _inputControl.SetEditTarget(null);
+            }
+            else if (_selectedConversationId.HasValue)
             {
                 _drafts[_selectedConversationId.Value] = _inputControl.Text;
             }
@@ -789,6 +933,7 @@ namespace WHATSAPP_CHAPT.App.Forms
         {
             if (disposing)
             {
+                _statusBannerTimer.Dispose();
                 _avatars.PhotoChanged -= OnAvatarPhotoChanged;
                 _headerAvatarCache.Dispose();
                 _headerTitleFont.Dispose();

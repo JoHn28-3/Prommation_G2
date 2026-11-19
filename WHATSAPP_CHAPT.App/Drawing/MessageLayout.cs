@@ -105,12 +105,41 @@ namespace WHATSAPP_CHAPT.App.Drawing
     }
 
     /// <summary>
+    /// Clé de cache pour la mise en page d'un message.
+    /// </summary>
+    public readonly record struct MessageLayoutCacheKey(
+        Guid Id,
+        int Width,
+        string Text,
+        bool IsEdited,
+        bool IsDeleted,
+        string? ReplyPreview,
+        string? ReplyAuthorName,
+        bool ShowAuthorName);
+
+    /// <summary>
     /// Calculateur et gestionnaire de cache pour la mise en page des messages.
     /// </summary>
     public sealed class MessageLayoutEngine
     {
-        private readonly record struct CacheKey(Guid Id, int Width, string Text, bool IsEdited, bool IsDeleted);
-        private readonly Dictionary<CacheKey, (int BubbleWidth, int BubbleHeight, Size TextSize)> _sizeCache = new();
+        private readonly Dictionary<MessageLayoutCacheKey, (int BubbleWidth, int BubbleHeight, Size TextSize)> _sizeCache = new();
+
+        /// <summary>
+        /// Construit la clé de cache de mise en page pour un message donné.
+        /// </summary>
+        public static MessageLayoutCacheKey CreateCacheKey(MessageViewItem msg, int width)
+        {
+            string displayText = msg.IsDeleted ? "Message supprimé" : msg.Text;
+            return new MessageLayoutCacheKey(
+                msg.Id,
+                width,
+                displayText,
+                msg.IsEdited,
+                msg.IsDeleted,
+                msg.ReplyPreview,
+                msg.ReplyAuthorName,
+                msg.ShowAuthorName);
+        }
 
         /// <summary>
         /// Invalide l'ensemble du cache des mesures.
@@ -186,7 +215,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
                 int availableInnerWidth = maxBubbleWidth - (padH * 2);
 
                 // Cache de mesure du contenu de la bulle
-                var cacheKey = new CacheKey(msg.Id, maxBubbleWidth, displayText, msg.IsEdited, msg.IsDeleted);
+                var cacheKey = CreateCacheKey(msg, maxBubbleWidth);
                 if (!_sizeCache.TryGetValue(cacheKey, out var cachedSize))
                 {
                     var measuredSize = TextRenderer.MeasureText(

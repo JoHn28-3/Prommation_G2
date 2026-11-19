@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Forms;
+using WHATSAPP_CHAPT.App.SelfTest;
 using WHATSAPP_CHAPT.App.Services;
 
 namespace WHATSAPP_CHAPT.App;
@@ -14,8 +15,25 @@ static class Program
     /// Point d'entrée principal pour l'application.
     /// </summary>
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
+        string? selftestPhase = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i].Equals("--selftest", StringComparison.OrdinalIgnoreCase))
+            {
+                selftestPhase = (i + 1 < args.Length && !args[i + 1].StartsWith("-")) ? args[i + 1] : "all";
+                break;
+            }
+        }
+
+        if (selftestPhase != null)
+        {
+            int failures = SelfTestRunner.Run(selftestPhase);
+            Environment.Exit(failures);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
 
         string logPath = System.IO.Path.Combine(

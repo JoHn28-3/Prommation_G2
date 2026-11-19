@@ -384,7 +384,7 @@ namespace WHATSAPP_CHAPT.App.Controls
                 var rRect = new Rectangle(bubble.ReplyBounds.X, bubble.ReplyBounds.Y - offset, bubble.ReplyBounds.Width, bubble.ReplyBounds.Height);
 
                 Color replyBarColor = bubble.Message.IsMine ? Theme.OutgoingMeta : Theme.Accent;
-                Color replyBg = bubble.Message.IsMine ? Color.FromArgb(40, Theme.OutgoingMeta) : Theme.Hover;
+                Color replyBg = bubble.Message.IsMine ? Theme.BubbleOutgoingReplyBackground : Theme.Hover;
 
                 DrawRoundedRectangle(g, rRect, LogicalToDeviceUnits(4), replyBg);
 
