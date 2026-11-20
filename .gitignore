@@ -4,6 +4,10 @@
 .vs/
 *.user
 *.suo
+whatsapp_chat/
+selftest-report.txt
+next-phase.md
+whatsapp_crash.log
 
 # Local secrets and runtime configuration
 WHATSAPP_CHAPT.App/Config/groq.settings.json

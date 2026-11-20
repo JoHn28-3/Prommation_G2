@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Controls;
@@ -23,12 +22,9 @@ namespace WHATSAPP_CHAPT.App.Forms
     /// </summary>
     public sealed class MainForm : Form
     {
-        [DllImport("winmm.dll", EntryPoint = "mciSendStringW", CharSet = CharSet.Unicode)]
-        private static extern int SendMci(string command, string? returnBuffer, int returnSize, IntPtr callback);
-
         private readonly IChatService _service;
         private readonly IAvatarProvider _avatars;
-        private readonly Action? _simulateIncoming;
+        private readonly ProfileStore? _profileStore;
         private readonly AvatarCache _headerAvatarCache;
         private readonly Dictionary<Guid, string> _drafts = new();
 
@@ -43,6 +39,7 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly ConversationListControl _listControl;
 
         private readonly Panel _rightPanel;
+        private readonly Panel _sectionPanel;
         private readonly Panel _rightHeaderPanel;
         private readonly Panel _inChatSearchPanel;
         private readonly TextBox _inChatSearchTextBox;
@@ -69,12 +66,11 @@ namespace WHATSAPP_CHAPT.App.Forms
         /// </summary>
         /// <param name="service">Service de messagerie.</param>
         /// <param name="avatars">Fournisseur de photos de profil.</param>
-        /// <param name="simulateIncoming">Action de simulation d'un message entrant (optionnelle).</param>
-        public MainForm(IChatService service, IAvatarProvider avatars, Action? simulateIncoming = null)
+        public MainForm(IChatService service, IAvatarProvider avatars, ProfileStore? profileStore = null)
         {
             _service = service ?? throw new ArgumentNullException(nameof(service));
             _avatars = avatars ?? throw new ArgumentNullException(nameof(avatars));
-            _simulateIncoming = simulateIncoming;
+            _profileStore = profileStore;
 
             _headerAvatarCache = new AvatarCache(_avatars);
             _avatars.PhotoChanged += OnAvatarPhotoChanged;
@@ -112,43 +108,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             _headerPanel.MouseMove += OnHeaderPanelMouseMove;
             _headerPanel.MouseClick += OnHeaderPanelMouseClick;
 
-            // Bandeau de démonstration (masqué si simulateIncoming est null)
-            if (_simulateIncoming != null)
-            {
-                _demoPanel = new Panel
-                {
-                    Dock = DockStyle.Top,
-                    Height = LogicalToDeviceUnits(44),
-                    BackColor = Theme.Header
-                };
-
-                var lblDemo = new Label
-                {
-                    Text = "Mode démonstration",
-                    Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
-                    ForeColor = Theme.Accent,
-                    AutoSize = true,
-                    Location = new Point(LogicalToDeviceUnits(12), LogicalToDeviceUnits(14))
-                };
-
-                var btnSimulate = new Button
-                {
-                    Text = "Simuler un message reçu",
-                    Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                    BackColor = Theme.Accent,
-                    ForeColor = Theme.AccentText,
-                    FlatStyle = FlatStyle.Flat,
-                    Cursor = Cursors.Hand,
-                    AutoSize = true,
-                    Location = new Point(LogicalToDeviceUnits(160), LogicalToDeviceUnits(8)),
-                    Height = LogicalToDeviceUnits(28)
-                };
-                btnSimulate.FlatAppearance.BorderSize = 0;
-                btnSimulate.Click += (s, e) => _simulateIncoming();
-
-                _demoPanel.Controls.Add(lblDemo);
-                _demoPanel.Controls.Add(btnSimulate);
-            }
+            _demoPanel = null;
 
             // Liste des conversations
             _listControl = new ConversationListControl(_avatars)
@@ -205,6 +165,13 @@ namespace WHATSAPP_CHAPT.App.Forms
                 BackColor = Theme.AppBackground
             };
             _rightPanel.Paint += OnRightPanelPaint;
+
+            _sectionPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.AppBackground,
+                Visible = false
+            };
 
             // En-tête de la zone droite
             _rightHeaderPanel = new Panel
@@ -358,6 +325,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             _rightPanel.Controls.Add(_rightHeaderPanel);
 
             // Ajout des panneaux principaux
+            _rightPanel.Controls.Add(_sectionPanel);
             Controls.Add(_rightPanel);
             Controls.Add(_leftPanel);
 
@@ -384,10 +352,27 @@ namespace WHATSAPP_CHAPT.App.Forms
             miSettings.Click += (s, e) => OpenSettingsDialog();
 
             var miEphemeral = new ToolStripMenuItem("Messages éphémères");
-            foreach (var option in new[] { "Désactivés", "24 heures", "7 jours", "90 jours" })
+            foreach (var option in new[]
             {
-                var optionItem = new ToolStripMenuItem(option);
-                optionItem.Click += (s, e) => ShowStatusMessage($"Messages éphémères : {option}");
+                ("Désactivés", 0),
+                ("24 heures", 24),
+                ("7 jours", 168),
+                ("90 jours", 2160)
+            })
+            {
+                var optionItem = new ToolStripMenuItem(option.Item1);
+                optionItem.Click += async (s, e) =>
+                {
+                    if (!_selectedConversationId.HasValue)
+                    {
+                        ShowStatusMessage("Sélectionnez une discussion.");
+                        return;
+                    }
+                    bool ok = await _service.SetEphemeralAsync(_selectedConversationId.Value, option.Item2);
+                    ShowStatusMessage(ok
+                        ? $"Messages éphémères : {option.Item1}"
+                        : "Impossible de modifier ce réglage.");
+                };
                 miEphemeral.DropDownItems.Add(optionItem);
             }
 
@@ -425,37 +410,285 @@ namespace WHATSAPP_CHAPT.App.Forms
             switch (key)
             {
                 case "discussions":
-                    // Panneau gauche déjà visible – ne rien cacher
+                    ShowSectionView(null);
                     break;
                 case "metaai":
-                    // Ouvrir le panneau Meta AI
-                    using (var dlg = new MetaAiForm())
-                    {
-                        dlg.ShowDialog(this);
-                    }
+                    ShowSectionView("metaai");
                     break;
                 case "profile":
                     OpenSettingsDialog();
                     break;
                 case "contacts":
-                    OpenNewContactDialog();
+                    ShowSectionView("contacts");
                     break;
                 case "archives":
-                    ShowStatusMessage("Affichage des conversations archivees");
-                    _ = ReloadConversationsAsync();
+                    ShowSectionView("archives");
                     break;
                 case "calls":
-                    ShowStatusMessage("Historique des appels disponible depuis une discussion");
+                    ShowSectionView("calls");
                     break;
                 case "status":
-                    ShowStatusMessage("Les statuts seront publies depuis cette vue");
+                    ShowSectionView("status");
                     break;
                 case "media":
-                    ShowStatusMessage("Les medias sont accessibles depuis les discussions");
+                    ShowSectionView("media");
                     break;
                 default:
                     ShowStatusMessage($"Section : {key}");
                     break;
+            }
+        }
+
+        private void ShowSectionView(string? section)
+        {
+            if (section == null)
+            {
+                _sectionPanel.Visible = false;
+                _sectionPanel.Controls.Clear();
+                if (_selectedConversationId.HasValue)
+                {
+                    _rightHeaderPanel.Visible = true;
+                    _messageListControl.Visible = true;
+                    _inputControl.Visible = true;
+                    _inputControl.Enabled = true;
+                }
+                return;
+            }
+
+            _rightHeaderPanel.Visible = false;
+            _messageListControl.Visible = false;
+            _inputControl.Visible = false;
+            _inChatSearchPanel.Visible = false;
+            _statusBannerPanel.Visible = false;
+
+            foreach (Control control in _sectionPanel.Controls)
+                control.Dispose();
+            _sectionPanel.Controls.Clear();
+
+            if (section == "metaai")
+            {
+                var meta = new MetaAiForm
+                {
+                    TopLevel = false,
+                    FormBorderStyle = FormBorderStyle.None,
+                    Dock = DockStyle.Fill
+                };
+                meta.Show();
+                _sectionPanel.Controls.Add(meta);
+            }
+            else
+            {
+                var title = new Label
+                {
+                    Dock = DockStyle.Top,
+                    Height = LogicalToDeviceUnits(60),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(LogicalToDeviceUnits(24), 0, 0, 0),
+                    Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+                    ForeColor = Theme.TextPrimary,
+                    BackColor = Theme.Header
+                };
+                title.Text = section switch
+                {
+                    "contacts" => "Contacts",
+                    "archives" => "Discussions archivées",
+                    "calls" => "Historique des appels",
+                    "status" => "Statuts",
+                    "media" => "Médias",
+                    _ => section
+                };
+
+                var content = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    BackColor = Theme.AppBackground,
+                    Padding = new Padding(LogicalToDeviceUnits(24))
+                };
+
+                var empty = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 11f),
+                    ForeColor = Theme.TextSecondary
+                };
+                empty.Text = section switch
+                {
+                    "contacts" => "Utilisez le bouton + pour enregistrer un nouveau contact.",
+                    "archives" => "Aucune discussion archivée.",
+                    "calls" => "Aucun appel dans l'historique.",
+                    "status" => "Aucun statut disponible.",
+                    "media" => "Les médias apparaîtront ici depuis vos discussions.",
+                    _ => "Aucun contenu."
+                };
+                content.Controls.Add(empty);
+                _ = PopulateSectionAsync(section, content, empty);
+
+                if (section == "contacts")
+                {
+                    var add = new Button
+                    {
+                        Text = "+",
+                        Font = new Font("Segoe UI", 20f, FontStyle.Bold),
+                        Size = new Size(LogicalToDeviceUnits(56), LogicalToDeviceUnits(56)),
+                        Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+                        Location = new Point(content.Width - LogicalToDeviceUnits(80), content.Height - LogicalToDeviceUnits(80)),
+                        BackColor = Theme.Accent,
+                        ForeColor = Theme.AccentText,
+                        FlatStyle = FlatStyle.Flat,
+                        Cursor = Cursors.Hand
+                    };
+                    add.FlatAppearance.BorderSize = 0;
+                    add.Click += (s, e) => OpenNewContactDialog();
+                    content.Controls.Add(add);
+                    add.BringToFront();
+                }
+
+                _sectionPanel.Controls.Add(content);
+                _sectionPanel.Controls.Add(title);
+            }
+
+            _sectionPanel.Visible = true;
+            _sectionPanel.BringToFront();
+        }
+
+        private async Task PopulateSectionAsync(string section, Panel content, Label empty)
+        {
+            try
+            {
+                if (section == "contacts")
+                {
+                    var contacts = await _service.GetContactsAsync();
+                    if (contacts.Count == 0)
+                        return;
+
+                    empty.Visible = false;
+                    content.Controls.Clear();
+                    var list = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Fill,
+                        FlowDirection = FlowDirection.TopDown,
+                        WrapContents = false,
+                        AutoScroll = true,
+                        BackColor = Theme.AppBackground
+                    };
+                    foreach (var contact in contacts)
+                    {
+                        var card = new Button
+                        {
+                            Text = $"{contact.DisplayName}\n{contact.IpAddress ?? "IP non enregistrée"}",
+                            Width = Math.Max(260, content.Width - LogicalToDeviceUnits(120)),
+                            Height = LogicalToDeviceUnits(64),
+                            TextAlign = ContentAlignment.MiddleLeft,
+                            BackColor = Theme.Panel,
+                            ForeColor = Theme.TextPrimary,
+                            FlatStyle = FlatStyle.Flat,
+                            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(8)),
+                            Tag = contact
+                        };
+                        card.FlatAppearance.BorderSize = 0;
+                        card.Click += async (s, e) =>
+                        {
+                            if (card.Tag is not Contact target)
+                                return;
+                            var conversations = await _service.GetConversationsAsync();
+                            var direct = conversations.FirstOrDefault(c =>
+                                c.Type == ConversationType.Direct
+                                && c.Members.Any(m => m.UserId == target.Id));
+                            if (direct != null)
+                                OnConversationSelected(this, direct.Id);
+                            ShowSectionView(null);
+                        };
+                        list.Controls.Add(card);
+                    }
+                    content.Controls.Add(list);
+                }
+                else if (section == "archives")
+                {
+                    var conversations = await _service.GetConversationsAsync();
+                    var archived = conversations.Where(c => c.IsArchived).ToList();
+                    if (archived.Count == 0)
+                        return;
+
+                    empty.Visible = false;
+                    content.Controls.Clear();
+                    var list = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Fill,
+                        FlowDirection = FlowDirection.TopDown,
+                        WrapContents = false,
+                        AutoScroll = true
+                    };
+                    foreach (var conversation in archived)
+                    {
+                        var card = new Button
+                        {
+                            Text = "  " + (conversation.Type == ConversationType.Group
+                                ? conversation.Title
+                                : "Discussion"),
+                            Width = Math.Max(260, content.Width - LogicalToDeviceUnits(120)),
+                            Height = LogicalToDeviceUnits(56),
+                            TextAlign = ContentAlignment.MiddleLeft,
+                            BackColor = Theme.Panel,
+                            ForeColor = Theme.TextPrimary,
+                            FlatStyle = FlatStyle.Flat,
+                            Tag = conversation.Id
+                        };
+                        card.FlatAppearance.BorderSize = 0;
+                        card.Click += async (s, e) =>
+                        {
+                            await _service.ArchiveConversationAsync((Guid)card.Tag, false);
+                            await ReloadConversationsAsync();
+                            ShowSectionView("archives");
+                        };
+                        list.Controls.Add(card);
+                    }
+                    content.Controls.Add(list);
+                }
+                else if (section == "media")
+                {
+                    var conversations = await _service.GetConversationsAsync();
+                    var mediaMessages = new List<Core.Models.Message>();
+                    foreach (var conversation in conversations)
+                        mediaMessages.AddRange((await _service.GetMessagesAsync(conversation.Id))
+                            .Where(m => m.MediaPath != null));
+
+                    if (mediaMessages.Count == 0)
+                        return;
+
+                    empty.Visible = false;
+                    content.Controls.Clear();
+                    var list = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Fill,
+                        FlowDirection = FlowDirection.LeftToRight,
+                        WrapContents = true,
+                        AutoScroll = true
+                    };
+                    foreach (var message in mediaMessages)
+                    {
+                        if (string.IsNullOrWhiteSpace(message.MediaPath))
+                            continue;
+                        string mediaPath = message.MediaPath;
+                        var card = new Button
+                        {
+                            Text = System.IO.Path.GetFileName(mediaPath),
+                            Size = new Size(LogicalToDeviceUnits(160), LogicalToDeviceUnits(80)),
+                            BackColor = Theme.Panel,
+                            ForeColor = Theme.TextPrimary,
+                            FlatStyle = FlatStyle.Flat,
+                            Tag = mediaPath
+                        };
+                        card.FlatAppearance.BorderSize = 0;
+                        card.Click += (s, e) => OnMediaClicked((string)card.Tag, message.MediaType ?? "document");
+                        list.Controls.Add(card);
+                    }
+                    content.Controls.Add(list);
+                }
+            }
+            catch (Exception ex)
+            {
+                empty.Text = $"Chargement impossible : {ex.Message}";
             }
         }
 
@@ -592,52 +825,51 @@ namespace WHATSAPP_CHAPT.App.Forms
                     "WHATSAPP_CHAPT", "Media");
                 System.IO.Directory.CreateDirectory(voiceMediaRoot);
                 string voicePath = System.IO.Path.Combine(voiceMediaRoot, $"voice_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.wav");
-
-                SendMci("close voice", null, 0, IntPtr.Zero);
-                int openResult = SendMci($"open new Type waveaudio Alias voice", null, 0, IntPtr.Zero);
-                if (openResult != 0)
+                using var recorder = new VoiceRecorderForm(voicePath);
+                if (recorder.ShowDialog(this) == DialogResult.OK
+                    && System.IO.File.Exists(recorder.OutputPath))
                 {
-                    ShowStatusMessage("Microphone indisponible.");
-                    return;
+                    await _service.SendMediaMessageAsync(
+                        _selectedConversationId.Value,
+                        recorder.OutputPath,
+                        "audio",
+                        new System.IO.FileInfo(recorder.OutputPath).Length);
+                    _messageListControl.ScrollToBottom();
+                    ShowStatusMessage("Message vocal envoyé.");
                 }
-                SendMci("record voice", null, 0, IntPtr.Zero);
-                var stopResult = MessageBox.Show(this,
-                    "Enregistrement vocal en cours. Cliquez sur OK pour terminer.",
-                    "Message vocal",
-                    MessageBoxButtons.OKCancel,
-                    MessageBoxIcon.Information);
-                SendMci("stop voice", null, 0, IntPtr.Zero);
-                SendMci($"save voice \"{voicePath}\"", null, 0, IntPtr.Zero);
-                SendMci("close voice", null, 0, IntPtr.Zero);
+                return;
+            }
 
-                if (stopResult == DialogResult.OK && System.IO.File.Exists(voicePath))
+            if (kind == "screenshot")
+            {
+                try
                 {
-                    var preview = MessageBox.Show(this,
-                        "Ecouter l'enregistrement avant l'envoi ?",
-                        "Apercu vocal",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Question);
-                    if (preview == DialogResult.Yes)
+                    Rectangle bounds = SystemInformation.VirtualScreen;
+                    using var bitmap = new Bitmap(bounds.Width, bounds.Height);
+                    using (Graphics graphics = Graphics.FromImage(bitmap))
                     {
-                        SendMci("close voicepreview", null, 0, IntPtr.Zero);
-                        SendMci($"open \"{voicePath}\" alias voicepreview", null, 0, IntPtr.Zero);
-                        SendMci("play voicepreview", null, 0, IntPtr.Zero);
+                        graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                     }
 
-                    var send = MessageBox.Show(this,
-                        "Envoyer ce message vocal ?",
-                        "Envoyer",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Question);
-                    if (send == DialogResult.Yes)
-                    {
-                        await _service.SendMediaMessageAsync(
-                            _selectedConversationId.Value,
-                            voicePath,
-                            "audio",
-                            new System.IO.FileInfo(voicePath).Length);
-                        _messageListControl.ScrollToBottom();
-                    }
+                    string screenshotMediaRoot = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "WHATSAPP_CHAPT", "Media");
+                    System.IO.Directory.CreateDirectory(screenshotMediaRoot);
+                    string screenshotPath = System.IO.Path.Combine(
+                        screenshotMediaRoot,
+                        $"capture_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.png");
+                    bitmap.Save(screenshotPath, System.Drawing.Imaging.ImageFormat.Png);
+                    await _service.SendMediaMessageAsync(
+                        _selectedConversationId.Value,
+                        screenshotPath,
+                        "image",
+                        new System.IO.FileInfo(screenshotPath).Length);
+                    _messageListControl.ScrollToBottom();
+                    ShowStatusMessage("Capture d'écran envoyée.");
+                }
+                catch (Exception ex)
+                {
+                    ShowStatusMessage($"Capture impossible : {ex.Message}");
                 }
                 return;
             }
@@ -645,12 +877,12 @@ namespace WHATSAPP_CHAPT.App.Forms
             if (kind == "sticker")
             {
                 string stickersFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Stickers");
-                if (!System.IO.Directory.Exists(stickersFolder))
-                {
-                    ShowStatusMessage("Aucun sticker installe.");
-                    return;
-                }
-                var stickerFiles = System.IO.Directory.GetFiles(stickersFolder, "*.png");
+                string emojiFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Emoji");
+                var stickerFiles = System.IO.Directory.Exists(stickersFolder)
+                    ? System.IO.Directory.GetFiles(stickersFolder, "*.png")
+                    : Array.Empty<string>();
+                if (stickerFiles.Length == 0 && System.IO.Directory.Exists(emojiFolder))
+                    stickerFiles = System.IO.Directory.GetFiles(emojiFolder, "*.png");
                 if (stickerFiles.Length == 0)
                 {
                     ShowStatusMessage("Aucun fichier sticker PNG disponible.");
@@ -755,7 +987,21 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             try
             {
-                await _service.SendMessageAsync(conversationId, text, replyToMessageId);
+                const int longMessageLimit = 4000;
+                if (text.Length <= longMessageLimit)
+                {
+                    await _service.SendMessageAsync(conversationId, text, replyToMessageId);
+                }
+                else
+                {
+                    for (int start = 0; start < text.Length; start += longMessageLimit)
+                    {
+                        int length = Math.Min(longMessageLimit, text.Length - start);
+                        string chunk = text.Substring(start, length);
+                        Guid? reply = start == 0 ? replyToMessageId : null;
+                        await _service.SendMessageAsync(conversationId, chunk, reply);
+                    }
+                }
 
                 _drafts.Remove(conversationId);
                 _inputControl.Clear();
@@ -1580,6 +1826,15 @@ namespace WHATSAPP_CHAPT.App.Forms
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 Theme.SetAccent(dlg.ThemeColor);
+                Theme.SetThemeMode(dlg.ThemeMode);
+                if (_profileStore != null)
+                {
+                    var profile = _profileStore.Load();
+                    profile.DisplayName = dlg.DisplayName;
+                    profile.IpAddress = dlg.LocalIp;
+                    profile.ThemeMode = dlg.ThemeMode;
+                    _profileStore.Save(profile);
+                }
                 if (_avatars is IAvatarProvider avatarProvider)
                 {
                     _headerPanel.Invalidate();
