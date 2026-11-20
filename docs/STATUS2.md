@@ -1,15 +1,16 @@
 # Statut Mission 2
 
 - Branche: OVERWORK
-- Phase en cours: P2
-- Tests: 58/58
+- Phase en cours: P3
+- Tests: 64/64
 - Build: OK — 0 erreur, 0 avertissement
 
 ## Phases
 
 - P0: terminée
 - P1: terminée
-- P2: en cours
+- P2: terminée
+- P3: en cours
 - P3: non commencée
 - P4: non commencée
 - P5: non commencée

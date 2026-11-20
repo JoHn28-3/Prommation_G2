@@ -27,6 +27,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         private int _hoveredIndex = -1;
         private int _scrollOffset;
         private string _searchQuery = string.Empty;
+        private string _activeFilter = "Toutes";
 
         private Font _nameFont;
         private Font _previewFont;
@@ -109,6 +110,12 @@ namespace WHATSAPP_CHAPT.App.Controls
             ApplyFilter();
         }
 
+        public void SetFilter(string filter)
+        {
+            _activeFilter = filter;
+            ApplyFilter();
+        }
+
         /// <summary>
         /// Sélectionne une conversation par son identifiant.
         /// </summary>
@@ -121,13 +128,21 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         private void ApplyFilter()
         {
+            IEnumerable<ConversationListItem> source = _allItems;
+
+            if (_activeFilter == "Non lues")
+                source = source.Where(i => i.UnreadCount > 0);
+
+            if (_activeFilter == "Favoris")
+                source = source.Where(i => i.DisplayName.StartsWith("★", StringComparison.Ordinal));
+
             if (string.IsNullOrWhiteSpace(_searchQuery))
             {
-                _filteredItems = new List<ConversationListItem>(_allItems);
+                _filteredItems = source.ToList();
             }
             else
             {
-                var scored = _allItems
+                var scored = source
                     .Select(item => (Item: item, Score: TextSearch.Score(_searchQuery, item.DisplayName)))
                     .Where(x => x.Score.HasValue)
                     .Select(x => (x.Item, Score: x.Score!.Value))

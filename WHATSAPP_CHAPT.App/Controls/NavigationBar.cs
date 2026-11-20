@@ -20,7 +20,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         public NavigationBar()
         {
             Dock = DockStyle.Left;
-            Width = LogicalToDeviceUnits(70);
+            Width = LogicalToDeviceUnits(64);
             BackColor = Theme.Panel;
             AutoSize = false;
             BuildButtons();
@@ -35,9 +35,7 @@ namespace WHATSAPP_CHAPT.App.Controls
                 ("calls", "Appels", "Assets/Icons/calls.png"),
                 ("status", "Statuts", "Assets/Icons/status.png"),
                 ("metaai", "Meta AI", "Assets/Icons/metaai.png"),
-                ("contacts", "Contacts", "Assets/Icons/contacts.png"),
-                ("archives", "Archives", "Assets/Icons/document.png"),
-                ("media", "Médias", "Assets/Icons/image.png")
+                ("archives", "Archives", "Assets/Icons/document.png")
             };
 
             int top = LogicalToDeviceUnits(12);

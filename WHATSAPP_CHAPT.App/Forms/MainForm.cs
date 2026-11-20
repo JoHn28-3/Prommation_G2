@@ -10,6 +10,7 @@ using WHATSAPP_CHAPT.App.Controls;
 using WHATSAPP_CHAPT.App.Drawing;
 using WHATSAPP_CHAPT.App.Logic;
 using WHATSAPP_CHAPT.App.Models;
+using WHATSAPP_CHAPT.App.Pages;
 using WHATSAPP_CHAPT.App.Services;
 using WHATSAPP_CHAPT.Core.Events;
 using WHATSAPP_CHAPT.Core.Models;
@@ -61,6 +62,41 @@ namespace WHATSAPP_CHAPT.App.Forms
         private Font _rightSelectedNameFont;
         private Font _rightSubtitleFont;
 
+        private static Icon LoadApplicationIcon()
+        {
+            string path = System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "Assets", "LOGO", "chat.ico");
+            if (System.IO.File.Exists(path))
+            {
+                try
+                {
+                    return new Icon(path);
+                }
+                catch
+                {
+                }
+            }
+
+            using Bitmap fallback = new(64, 64, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(fallback))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.Clear(Theme.Accent);
+                using var pen = new Pen(Color.White, 5);
+                g.DrawEllipse(pen, 12, 12, 40, 40);
+            }
+            IntPtr handle = fallback.GetHicon();
+            try
+            {
+                return Icon.FromHandle(handle);
+            }
+            catch
+            {
+                return SystemIcons.Application;
+            }
+        }
+
         /// <summary>
         /// Initialise une nouvelle instance de la fenêtre principale.
         /// </summary>
@@ -79,9 +115,10 @@ namespace WHATSAPP_CHAPT.App.Forms
             DoubleBuffered = true;
             Text = "WHATSAPP";
             StartPosition = FormStartPosition.CenterScreen;
+            Icon = LoadApplicationIcon();
 
             MinimumSize = new Size(LogicalToDeviceUnits(900), LogicalToDeviceUnits(600));
-            Size = new Size(LogicalToDeviceUnits(1050), LogicalToDeviceUnits(700));
+            Size = new Size(LogicalToDeviceUnits(1700), LogicalToDeviceUnits(900));
             BackColor = Theme.AppBackground;
 
             _headerTitleFont = new Font("Segoe UI", 11.5f, FontStyle.Bold);
@@ -475,6 +512,30 @@ namespace WHATSAPP_CHAPT.App.Forms
                 };
                 meta.Show();
                 _sectionPanel.Controls.Add(meta);
+            }
+            else if (section == "calls")
+            {
+                var page = new CallsPage();
+                page.BackRequested += () => ShowSectionView(null);
+                _sectionPanel.Controls.Add(page);
+            }
+            else if (section == "status")
+            {
+                var page = new StatusesPage();
+                page.BackRequested += () => ShowSectionView(null);
+                _sectionPanel.Controls.Add(page);
+            }
+            else if (section == "archives")
+            {
+                var page = new ArchivedPage();
+                page.BackRequested += () => ShowSectionView(null);
+                _sectionPanel.Controls.Add(page);
+            }
+            else if (section == "newdiscussion")
+            {
+                var page = new NewDiscussionPage();
+                page.BackRequested += () => ShowSectionView(null);
+                _sectionPanel.Controls.Add(page);
             }
             else
             {

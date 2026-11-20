@@ -27,6 +27,11 @@ namespace WHATSAPP_CHAPT.App.SelfTest
                 PhaseP1Tests.Run(results);
             }
 
+            if (normalizedPhase == "p2" || normalizedPhase == "2" || normalizedPhase == "all")
+            {
+                PhaseP2Tests.Run(results);
+            }
+
             if (normalizedPhase == "a" || normalizedPhase == "all")
             {
                 Phase7ATests.Run(results);
