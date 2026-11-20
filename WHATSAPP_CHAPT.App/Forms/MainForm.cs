@@ -793,37 +793,33 @@ namespace WHATSAPP_CHAPT.App.Forms
         private void OnEmojiRequested()
         {
             if (!_inputControl.Enabled) return;
+            var catalog = new EmojiCatalog();
+            catalog.Load(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Emoji"));
 
-            var menu = new ContextMenuStrip
+            var items = new List<ThemedMenuItem>();
+            foreach (EmojiEntry emoji in catalog.Entries)
             {
-                Renderer = new ThemeContextMenuRenderer(),
-                BackColor = Theme.Header,
-                ForeColor = Theme.TextPrimary,
-                AutoSize = false,
-                Size = new Size(LogicalToDeviceUnits(260), LogicalToDeviceUnits(150))
-            };
-            var emojiMap = new Dictionary<string, string>
-            {
-                ["1f600"] = "\U0001F600", ["1f602"] = "\U0001F602", ["1f605"] = "\U0001F605",
-                ["1f60a"] = "\U0001F60A", ["1f60d"] = "\U0001F60D", ["1f60e"] = "\U0001F60E",
-                ["1f621"] = "\U0001F621", ["1f622"] = "\U0001F622", ["1f62d"] = "\U0001F62D",
-                ["1f62e"] = "\U0001F62E", ["1f631"] = "\U0001F631", ["1f634"] = "\U0001F634",
-                ["1f644"] = "\U0001F644", ["1f914"] = "\U0001F914", ["1f92c"] = "\U0001F92C",
-                ["1f973"] = "\U0001F973"
-            };
-            foreach (var pair in emojiMap)
-            {
-                var item = new ToolStripMenuItem { AutoSize = false, Size = new Size(48, 42), Tag = pair.Value };
-                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Emoji", pair.Key + ".png");
-                if (System.IO.File.Exists(path)) item.Image = new Bitmap(path);
-                item.Click += (s, e) =>
+                items.Add(new ThemedMenuItem
                 {
-                    _inputControl.Text += (string.IsNullOrEmpty(_inputControl.Text) ? string.Empty : " ") + (string)item.Tag;
-                    _inputControl.FocusInput();
-                };
-                menu.Items.Add(item);
+                    Text = emoji.Unicode,
+                    Action = () =>
+                    {
+                        _inputControl.Text += emoji.Unicode;
+                        _inputControl.FocusInput();
+                    }
+                });
             }
-            menu.Show(_inputControl, new Point(0, -menu.Height));
+
+            if (items.Count == 0)
+            {
+                ShowStatusMessage("Aucun emoji disponible.");
+                return;
+            }
+
+            var menu = new ThemedMenu(items);
+            Point location = _inputControl.PointToScreen(
+                new Point(0, -LogicalToDeviceUnits(220)));
+            menu.ShowAt(_inputControl, location);
         }
 
         private void OnVoiceRequested()
@@ -979,9 +975,7 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             string filter = kind switch
             {
-                "image" or "photo" => "Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp",
-                "video" => "Vidéos|*.mp4;*.avi;*.mov;*.mkv|Tous les fichiers|*.*",
-                "audio" or "voicerecord" => "Audio|*.mp3;*.wav;*.m4a;*.ogg;*.flac",
+                "media" => "Photos et vidéos|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.mp4;*.avi;*.mov;*.mkv;*.webm",
                 "document" => "Documents|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.zip|Tous les fichiers|*.*",
                 _ => "Tous les fichiers|*.*"
             };
@@ -990,15 +984,13 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 Filter = filter,
                 Title = "Choisir un fichier à joindre",
-                Multiselect = kind == "image" || kind == "photo"
+                Multiselect = kind == "media"
             };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
             string mediaType = kind switch
             {
-                "image" or "photo" => "image",
-                "video" => "video",
-                "audio" or "voicerecord" => "audio",
+                "media" => "media",
                 "sticker" => "sticker",
                 _ => "document"
             };
@@ -1008,13 +1000,18 @@ namespace WHATSAPP_CHAPT.App.Forms
             System.IO.Directory.CreateDirectory(mediaRoot);
             foreach (string sourcePath in dialog.FileNames)
             {
+                string classifiedType = MediaPolicy.Classify(sourcePath);
+                if (MediaPolicy.RequiresExecutableWarning(sourcePath))
+                {
+                    ShowStatusMessage("Ce type de fichier peut être dangereux. Ouvrez-le uniquement si vous en connaissez l’expéditeur.");
+                }
                 string safeName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}_{System.IO.Path.GetFileName(sourcePath)}";
                 string localPath = System.IO.Path.Combine(mediaRoot, safeName);
                 System.IO.File.Copy(sourcePath, localPath, overwrite: false);
                 await _service.SendMediaMessageAsync(
                     _selectedConversationId.Value,
                     localPath,
-                    mediaType,
+                    classifiedType,
                     new System.IO.FileInfo(localPath).Length);
             }
             _messageListControl.ScrollToBottom();

@@ -1,66 +1,70 @@
-// SPDX-License-Identifier: MIT
+#nullable enable
+
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Drawing;
 
 namespace WHATSAPP_CHAPT.App.Controls
 {
-    /// <summary>
-    /// Context menu for attachment options used in the message composition bar.
-    /// </summary>
-    public class AttachmentMenu : ContextMenuStrip
+    public sealed class AttachmentMenu : IDisposable
     {
+        private readonly ThemedMenu _menu;
+
+        public event EventHandler<string>? AttachmentRequested;
+
         public AttachmentMenu()
         {
-            BackColor = Theme.Header;
-            ForeColor = Theme.TextPrimary;
-            Renderer = new ThemeContextMenuRenderer();
-            BuildItems();
-        }
-
-        private void BuildItems()
-        {
-            var items = new List<(string text, string iconPath, EventHandler handler)>
+            var catalog = new IconCatalog();
+            _menu = new ThemedMenu(new[]
             {
-                ("Document", "Assets/Icons/document.png", OnDocument),
-                ("Photo", "Assets/Icons/photo.png", OnPhoto),
-                ("Image", "Assets/Icons/image.png", OnImage),
-                ("Video", "Assets/Icons/video.png", OnVideo),
-                ("Audio", "Assets/Icons/audio.png", OnAudio),
-                ("Enregistrement vocal", "Assets/Icons/voice.png", OnVoiceRecord),
-                ("Sticker", "Assets/Icons/sticker.png", OnSticker)
-            };
-
-            foreach (var (text, iconPath, handler) in items)
-            {
-                var item = new ToolStripMenuItem(text);
-                // Load icon if exists
-                try
+                new ThemedMenuItem
                 {
-                    var full = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, iconPath);
-                    if (System.IO.File.Exists(full))
-                        item.Image = Image.FromFile(full);
+                    Text = "Document",
+                    Icon = catalog.Load("document", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "document")
+                },
+                new ThemedMenuItem
+                {
+                    Text = "Photos et vidéos",
+                    Icon = catalog.Load("photo", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "media")
+                },
+                new ThemedMenuItem
+                {
+                    Text = "Appareil photo",
+                    Icon = catalog.Load("video", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "photo")
+                },
+                new ThemedMenuItem
+                {
+                    Text = "Capture d’écran",
+                    Icon = catalog.Load("photo", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "screenshot")
+                },
+                new ThemedMenuItem
+                {
+                    Text = "Sticker",
+                    Icon = catalog.Load("sticker", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "sticker")
+                },
+                new ThemedMenuItem
+                {
+                    Text = "Contact",
+                    Icon = catalog.Load("contact", 20, 20, Theme.TextPrimary),
+                    Action = () => AttachmentRequested?.Invoke(this, "contact")
                 }
-                catch { /* ignore icon load failures */ }
-                item.Click += handler;
-                Items.Add(item);
-            }
+            });
         }
 
-        // Placeholder handlers – actual implementation will be wired up by the host control.
-        private void OnDocument(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "document");
-        private void OnPhoto(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "photo");
-        private void OnImage(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "image");
-        private void OnVideo(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "video");
-        private void OnAudio(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "audio");
-        private void OnVoiceRecord(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "voicerecord");
-        private void OnSticker(object? sender, EventArgs e) => AttachmentRequested?.Invoke(this, "sticker");
+        public void Show(Control owner, Point screenPoint)
+        {
+            _menu.ShowAt(owner, screenPoint);
+        }
 
-        /// <summary>
-        /// Event raised when a menu item is selected. The payload is a short string indicating the type.
-        /// </summary>
-        public event EventHandler<string>? AttachmentRequested;
+        public void Dispose()
+        {
+            _menu.Dispose();
+        }
     }
 }

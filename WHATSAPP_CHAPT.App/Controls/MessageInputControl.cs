@@ -177,9 +177,11 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         private void OnAttachmentClicked(object? sender, EventArgs e)
         {
-            using var menu = new AttachmentMenu();
+            var menu = new AttachmentMenu();
             menu.AttachmentRequested += (s, kind) => AttachmentRequested?.Invoke(kind);
-            menu.Show(_attachmentButton, new Point(0, -menu.PreferredSize.Height));
+            Point location = _attachmentButton.PointToScreen(
+                new Point(0, -LogicalToDeviceUnits(260)));
+            menu.Show(_attachmentButton, location);
         }
 
         private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
