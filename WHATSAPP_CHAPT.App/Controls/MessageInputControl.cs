@@ -3,9 +3,11 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Drawing;
 using WHATSAPP_CHAPT.App.Models;
+using WHATSAPP_CHAPT.App.Services;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 
@@ -21,6 +23,11 @@ namespace WHATSAPP_CHAPT.App.Controls
         private readonly Button _emojiButton;
         private readonly Button _attachmentButton;
         private readonly Button _voiceButton;
+        private readonly System.Windows.Forms.Timer _voiceTimer;
+        private readonly float[] _waveform = new float[64];
+        private WaveInRecorder? _recorder;
+        private int _voiceElapsedMilliseconds;
+        private int _waveIndex;
         private MessageViewItem? _replyTarget;
         private MessageViewItem? _editTarget;
 
@@ -50,7 +57,8 @@ namespace WHATSAPP_CHAPT.App.Controls
         public event Action? EditCancelled;
         public event Action<string>? AttachmentRequested;
         public event Action? EmojiRequested;
-        public event Action? VoiceRequested;
+        public event Action<string>? VoiceRecordingCompleted;
+        public event Action<string>? VoiceRecordingStatus;
 
         /// <summary>
         /// Indique si le contrôle est actuellement en mode modification de message.
@@ -138,10 +146,11 @@ namespace WHATSAPP_CHAPT.App.Controls
 
             _emojiButton = CreateToolButton("E", "Emojis", (s, e) => EmojiRequested?.Invoke());
             _attachmentButton = CreateToolButton("+", "Joindre un fichier, une photo, une vidéo ou un audio", OnAttachmentClicked);
-            _voiceButton = CreateToolButton("A", "Choisir un fichier audio", (s, e) => VoiceRequested?.Invoke());
+            _voiceButton = CreateToolButton("🎙", "Enregistrer un message vocal", OnVoiceButtonClicked);
             SetAssetIcon(_emojiButton, "emoji.png");
             SetAssetIcon(_attachmentButton, "attachment.png");
-            SetAssetIcon(_voiceButton, "audio.png");
+            _voiceTimer = new System.Windows.Forms.Timer { Interval = 50 };
+            _voiceTimer.Tick += OnVoiceTimerTick;
 
             Controls.Add(_placeholderLabel);
             Controls.Add(_textBox);
@@ -177,11 +186,148 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         private void OnAttachmentClicked(object? sender, EventArgs e)
         {
+            if (_recorder != null)
+            {
+                CancelVoiceRecording();
+                return;
+            }
+
             var menu = new AttachmentMenu();
             menu.AttachmentRequested += (s, kind) => AttachmentRequested?.Invoke(kind);
             Point location = _attachmentButton.PointToScreen(
                 new Point(0, -LogicalToDeviceUnits(260)));
             menu.Show(_attachmentButton, location);
+        }
+
+        private void OnVoiceButtonClicked(object? sender, EventArgs e)
+        {
+            if (_recorder == null)
+            {
+                StartVoiceRecording();
+                return;
+            }
+
+            bool success = _recorder.IsPaused ? _recorder.Resume() : _recorder.Pause();
+            if (!success)
+            {
+                VoiceRecordingStatus?.Invoke("Impossible de modifier l’état du microphone.");
+                return;
+            }
+
+            _voiceButton.Text = _recorder.IsPaused ? "▶" : "Ⅱ";
+            Invalidate();
+        }
+
+        private void StartVoiceRecording()
+        {
+            _recorder = new WaveInRecorder();
+            if (!_recorder.Start(out string? error))
+            {
+                _recorder.Dispose();
+                _recorder = null;
+                VoiceRecordingStatus?.Invoke(error ?? "Microphone indisponible.");
+                return;
+            }
+
+            Array.Clear(_waveform);
+            _waveIndex = 0;
+            _voiceElapsedMilliseconds = 0;
+            _textBox.Visible = false;
+            _placeholderLabel.Visible = false;
+            _voiceButton.Text = "Ⅱ";
+            _voiceButton.AccessibleName = "Mettre en pause l’enregistrement";
+            _attachmentButton.Text = "🗑";
+            _attachmentButton.AccessibleName = "Supprimer le message vocal";
+            _voiceTimer.Start();
+            Focus();
+            Invalidate();
+        }
+
+        private void OnVoiceTimerTick(object? sender, EventArgs e)
+        {
+            if (_recorder == null)
+            {
+                return;
+            }
+
+            if (_recorder.IsPaused)
+            {
+                Invalidate();
+                return;
+            }
+
+            _voiceElapsedMilliseconds += _voiceTimer.Interval;
+            _waveform[_waveIndex] = Math.Clamp(_recorder.Peak / 32768f, 0f, 1f);
+            _waveIndex = (_waveIndex + 1) % _waveform.Length;
+
+            if (_voiceElapsedMilliseconds >= 5 * 60 * 1000)
+            {
+                VoiceRecordingStatus?.Invoke("Durée maximale de 5 minutes atteinte. Le vocal est prêt à être envoyé.");
+                CompleteVoiceRecording();
+                return;
+            }
+
+            Invalidate();
+        }
+
+        private void CancelVoiceRecording()
+        {
+            _voiceTimer.Stop();
+            _recorder?.Cancel();
+            _recorder?.Dispose();
+            _recorder = null;
+            _textBox.Visible = true;
+            _voiceButton.Text = "🎙";
+            _attachmentButton.Text = "+";
+            _attachmentButton.AccessibleName = "Joindre un fichier, une photo, une vidéo ou un audio";
+            UpdatePlaceholderVisibility();
+            AdjustLayoutAndHeight();
+            Invalidate();
+        }
+
+        private void CompleteVoiceRecording()
+        {
+            if (_recorder == null)
+            {
+                return;
+            }
+
+            _voiceTimer.Stop();
+            string mediaRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WHATSAPP_CHAPT",
+                "Media");
+            string path = Path.Combine(mediaRoot, $"voice_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.wav");
+            WaveInRecorder recorder = _recorder;
+
+            try
+            {
+                Directory.CreateDirectory(mediaRoot);
+                recorder.WriteWaveFile(path);
+                recorder.Dispose();
+                _recorder = null;
+                _textBox.Visible = true;
+                _voiceButton.Text = "🎙";
+                _attachmentButton.Text = "+";
+                _attachmentButton.AccessibleName = "Joindre un fichier, une photo, une vidéo ou un audio";
+                UpdatePlaceholderVisibility();
+                AdjustLayoutAndHeight();
+                Invalidate();
+                VoiceRecordingCompleted?.Invoke(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                recorder.Dispose();
+                _recorder = null;
+                _textBox.Visible = true;
+                _voiceButton.Text = "🎙";
+                _attachmentButton.Text = "+";
+                _attachmentButton.AccessibleName = "Joindre un fichier, une photo, une vidéo ou un audio";
+                UpdatePlaceholderVisibility();
+                AdjustLayoutAndHeight();
+                VoiceRecordingStatus?.Invoke($"Impossible d’enregistrer le vocal : {ex.Message}");
+                Invalidate();
+            }
         }
 
         private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
@@ -448,7 +594,24 @@ namespace WHATSAPP_CHAPT.App.Controls
             // Clic sur le bouton d'envoi
             if (_sendButtonRect.Contains(e.Location))
             {
-                TriggerSend();
+                if (_recorder != null)
+                {
+                    CompleteVoiceRecording();
+                }
+                else
+                {
+                    TriggerSend();
+                }
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Escape && _recorder != null)
+            {
+                e.Handled = true;
+                CancelVoiceRecording();
             }
         }
 
@@ -459,7 +622,8 @@ namespace WHATSAPP_CHAPT.App.Controls
 
             bool showBanner = _replyTarget != null || _editTarget != null;
             bool isOverClose = showBanner && _replyCloseButtonRect.Contains(e.Location);
-            bool isOverSend = _sendButtonRect.Contains(e.Location) && !string.IsNullOrWhiteSpace(_textBox.Text);
+            bool isOverSend = _sendButtonRect.Contains(e.Location)
+                && (_recorder != null || !string.IsNullOrWhiteSpace(_textBox.Text));
 
             Cursor = (isOverClose || isOverSend) ? Cursors.Hand : Cursors.Default;
         }
@@ -529,7 +693,7 @@ namespace WHATSAPP_CHAPT.App.Controls
             DrawRoundedRectangle(g, _inputContainerRect, radius, Theme.SearchBackground);
 
             // 3. Bouton d'envoi rond
-            bool canSend = !string.IsNullOrWhiteSpace(_textBox.Text) && Enabled;
+            bool canSend = _recorder != null || (!string.IsNullOrWhiteSpace(_textBox.Text) && Enabled);
             Color btnColor = canSend ? Theme.Accent : Theme.SearchBackground;
             Color arrowColor = canSend ? Theme.AccentText : Theme.TextSecondary;
 
@@ -539,8 +703,79 @@ namespace WHATSAPP_CHAPT.App.Controls
                 g.FillEllipse(btnBrush, _sendButtonRect);
             }
 
-            // Flèche d'envoi dessinée en GDI+
-            DrawSendArrow(g, _sendButtonRect, arrowColor);
+            if (_recorder != null)
+            {
+                DrawVoiceRecording(g, arrowColor);
+            }
+            else if (!string.IsNullOrWhiteSpace(_textBox.Text))
+            {
+                DrawSendArrow(g, _sendButtonRect, arrowColor);
+            }
+            else
+            {
+                DrawMicrophone(g, _sendButtonRect, Theme.TextSecondary);
+            }
+        }
+
+        private void DrawVoiceRecording(Graphics g, Color color)
+        {
+            int seconds = _voiceElapsedMilliseconds / 1000;
+            string time = $"{seconds / 60:00}:{seconds % 60:00}";
+            var timeRect = new Rectangle(
+                _inputContainerRect.X + LogicalToDeviceUnits(12),
+                _inputContainerRect.Y,
+                LogicalToDeviceUnits(54),
+                _inputContainerRect.Height);
+            TextRenderer.DrawText(g, time, _fontReplyName, timeRect, Theme.Accent,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+
+            int barAreaX = timeRect.Right + LogicalToDeviceUnits(8);
+            int barAreaWidth = Math.Max(1, _inputContainerRect.Right - barAreaX - LogicalToDeviceUnits(8));
+            int barWidth = Math.Max(1, LogicalToDeviceUnits(2));
+            int gap = Math.Max(1, LogicalToDeviceUnits(2));
+            int visibleBars = Math.Min(_waveform.Length, Math.Max(1, barAreaWidth / (barWidth + gap)));
+            int centerY = _inputContainerRect.Y + _inputContainerRect.Height / 2;
+            for (int i = 0; i < visibleBars; i++)
+            {
+                int sampleIndex = (_waveIndex - visibleBars + i + _waveform.Length) % _waveform.Length;
+                int barHeight = (int)(_waveform[sampleIndex] * LogicalToDeviceUnits(28));
+                if (barHeight == 0)
+                {
+                    continue;
+                }
+                int x = barAreaX + i * (barWidth + gap);
+                using var brush = new SolidBrush(i >= visibleBars - 2 ? color : Theme.Accent);
+                g.FillRectangle(brush, x, centerY - barHeight / 2, barWidth, barHeight);
+            }
+        }
+
+        private void DrawMicrophone(Graphics g, Rectangle bounds, Color color)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int cx = bounds.X + bounds.Width / 2;
+            int top = bounds.Y + LogicalToDeviceUnits(9);
+            int width = LogicalToDeviceUnits(8);
+            int height = LogicalToDeviceUnits(14);
+            using var pen = new Pen(color, LogicalToDeviceUnits(2));
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            g.DrawArc(pen, cx - LogicalToDeviceUnits(7), top + LogicalToDeviceUnits(4),
+                LogicalToDeviceUnits(14), LogicalToDeviceUnits(17), 0, 180);
+            g.DrawLine(pen, cx, top + LogicalToDeviceUnits(21),
+                cx, top + LogicalToDeviceUnits(25));
+            g.DrawLine(pen, cx - LogicalToDeviceUnits(5), top + LogicalToDeviceUnits(25),
+                cx + LogicalToDeviceUnits(5), top + LogicalToDeviceUnits(25));
+            using var mic = new SolidBrush(color);
+            int radius = LogicalToDeviceUnits(4);
+            var micRect = new Rectangle(cx - width / 2, top, width, height);
+            using var path = new GraphicsPath();
+            int diameter = radius * 2;
+            path.AddArc(micRect.X, micRect.Y, diameter, diameter, 180, 90);
+            path.AddArc(micRect.Right - diameter, micRect.Y, diameter, diameter, 270, 90);
+            path.AddArc(micRect.Right - diameter, micRect.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(micRect.X, micRect.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            g.FillPath(mic, path);
         }
 
         private void DrawSendArrow(Graphics g, Rectangle bounds, Color arrowColor)
@@ -593,6 +828,9 @@ namespace WHATSAPP_CHAPT.App.Controls
                 _emojiButton.Dispose();
                 _attachmentButton.Dispose();
                 _voiceButton.Dispose();
+                _voiceTimer.Stop();
+                _voiceTimer.Dispose();
+                _recorder?.Dispose();
             }
 
             base.Dispose(disposing);

@@ -90,6 +90,8 @@ namespace WHATSAPP_CHAPT.App.Models
         /// </summary>
         public long? MediaSize { get; init; }
 
+        public string? Transcription { get; init; }
+
         /// <summary>
         /// Indique si le message contient une pièce jointe média.
         /// </summary>

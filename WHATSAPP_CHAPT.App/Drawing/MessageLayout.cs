@@ -120,7 +120,9 @@ namespace WHATSAPP_CHAPT.App.Drawing
         bool IsDeleted,
         string? ReplyPreview,
         string? ReplyAuthorName,
-        bool ShowAuthorName);
+        bool ShowAuthorName,
+        string? MediaPath,
+        string? MediaType);
 
     /// <summary>
     /// Calculateur et gestionnaire de cache pour la mise en page des messages.
@@ -134,7 +136,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
         /// </summary>
         public static MessageLayoutCacheKey CreateCacheKey(MessageViewItem msg, int width)
         {
-            string displayText = msg.IsDeleted ? "Message supprimé" : msg.Text;
+            string displayText = CreateDisplayText(msg);
             return new MessageLayoutCacheKey(
                 msg.Id,
                 width,
@@ -143,7 +145,25 @@ namespace WHATSAPP_CHAPT.App.Drawing
                 msg.IsDeleted,
                 msg.ReplyPreview,
                 msg.ReplyAuthorName,
-                msg.ShowAuthorName);
+                msg.ShowAuthorName,
+                msg.MediaPath,
+                msg.MediaType);
+        }
+
+        private static string CreateDisplayText(MessageViewItem msg)
+        {
+            if (msg.IsDeleted)
+            {
+                return "Message supprimé";
+            }
+
+            if (string.IsNullOrWhiteSpace(msg.Transcription))
+            {
+                return msg.Text;
+            }
+
+            string prefix = string.IsNullOrWhiteSpace(msg.Text) ? string.Empty : msg.Text + Environment.NewLine;
+            return prefix + "Transcription : " + msg.Transcription;
         }
 
         /// <summary>
@@ -213,7 +233,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
                 }
 
                 // Préparation du texte et des métadonnées
-                string displayText = msg.IsDeleted ? "Message supprimé" : msg.Text;
+                string displayText = CreateDisplayText(msg);
                 string timeText = (msg.IsEdited ? "modifié " : string.Empty) + msg.Time;
                 var textFont = msg.IsDeleted ? fontItalic : fontRegular;
 
@@ -231,7 +251,14 @@ namespace WHATSAPP_CHAPT.App.Drawing
 
                     int authorHeight = msg.ShowAuthorName ? deviceUnitsConverter(16) : 0;
                     int replyHeight = !string.IsNullOrEmpty(msg.ReplyPreview) ? deviceUnitsConverter(32) : 0;
-                    int mediaHeight = msg.HasMedia ? deviceUnitsConverter(36) : 0;
+                    int mediaHeight = msg.HasMedia
+                        ? deviceUnitsConverter(msg.MediaType switch
+                        {
+                            "image" => 180,
+                            "sticker" => 160,
+                            _ => 40
+                        })
+                        : 0;
                     int timeHeight = deviceUnitsConverter(14);
 
                     int contentWidth = measuredSize.Width;
@@ -254,7 +281,8 @@ namespace WHATSAPP_CHAPT.App.Drawing
 
                     if (msg.HasMedia)
                     {
-                        contentWidth = Math.Max(contentWidth, deviceUnitsConverter(180));
+                        contentWidth = Math.Max(contentWidth, deviceUnitsConverter(
+                            msg.MediaType == "sticker" ? 160 : 220));
                     }
 
                     contentWidth = Math.Max(contentWidth, timeRowWidth);
@@ -308,7 +336,12 @@ namespace WHATSAPP_CHAPT.App.Drawing
 
                 if (msg.HasMedia)
                 {
-                    int mediaH = deviceUnitsConverter(36);
+                    int mediaH = deviceUnitsConverter(msg.MediaType switch
+                    {
+                        "image" => 180,
+                        "sticker" => 160,
+                        _ => 40
+                    });
                     bubbleItem.MediaBounds = new Rectangle(innerX, innerY, bubbleWidth - (padH * 2), mediaH);
                     innerY += mediaH + gap;
                 }

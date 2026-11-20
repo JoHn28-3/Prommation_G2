@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Drawing;
 using WHATSAPP_CHAPT.App.Models;
@@ -18,6 +20,8 @@ namespace WHATSAPP_CHAPT.App.Controls
     {
         private readonly VScrollBar _vScrollBar;
         private readonly MessageLayoutEngine _layoutEngine = new();
+        private readonly Dictionary<string, Bitmap> _mediaImageCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _unavailableMediaImages = new(StringComparer.OrdinalIgnoreCase);
 
         private IReadOnlyList<MessageViewItem> _messages = Array.Empty<MessageViewItem>();
         private IReadOnlyList<MessageViewItem> _rawMessages = Array.Empty<MessageViewItem>();
@@ -480,16 +484,47 @@ namespace WHATSAPP_CHAPT.App.Controls
                 DrawRoundedRectangle(g, mRect, LogicalToDeviceUnits(4), mediaBg);
 
                 string mediaFileName = System.IO.Path.GetFileName(bubble.Message.MediaPath) ?? "Fichier";
-                string mediaLabel = bubble.Message.MediaType switch
+                string mediaType = bubble.Message.MediaType ?? "document";
+                if (mediaType.Equals("image", StringComparison.OrdinalIgnoreCase)
+                    || mediaType.Equals("sticker", StringComparison.OrdinalIgnoreCase))
                 {
-                    "image" => $"Image  {mediaFileName}",
-                    "video" => $"Vidéo  {mediaFileName}",
-                    "audio" => $"Audio  {mediaFileName}",
-                    _ => $"Fichier  {mediaFileName}"
-                };
+                    Bitmap? image = LoadMediaImage(bubble.Message.MediaPath!);
+                    if (image == null)
+                    {
+                        TextRenderer.DrawText(g, mediaType.Equals("sticker", StringComparison.OrdinalIgnoreCase)
+                                ? "Sticker indisponible"
+                                : "Aperçu indisponible",
+                            _fontRegular, mRect, Theme.TextSecondary,
+                            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    }
+                    else
+                    {
+                        DrawMediaImage(g, image, mRect, LogicalToDeviceUnits(8));
+                        if (mediaType.Equals("sticker", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var stickerLabel = new Rectangle(
+                                mRect.X + LogicalToDeviceUnits(6),
+                                mRect.Y + LogicalToDeviceUnits(6),
+                                LogicalToDeviceUnits(52),
+                                LogicalToDeviceUnits(20));
+                            DrawRoundedRectangle(g, stickerLabel, LogicalToDeviceUnits(8), Theme.Header);
+                            TextRenderer.DrawText(g, "Sticker", _fontTime, stickerLabel, Theme.Accent,
+                                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                        }
+                    }
+                }
+                else
+                {
+                    string mediaLabel = mediaType switch
+                    {
+                        "video" => $"Vidéo  {mediaFileName}",
+                        "audio" => $"Audio  {mediaFileName}",
+                        _ => $"Fichier  {mediaFileName}"
+                    };
 
-                TextRenderer.DrawText(g, mediaLabel, _fontRegular, mRect, Theme.Accent,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(g, mediaLabel, _fontRegular, mRect, Theme.Accent,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                }
             }
 
             // 3. Corps du texte
@@ -520,6 +555,72 @@ namespace WHATSAPP_CHAPT.App.Controls
                 int iconY = timeRect.Y + (timeRect.Height - LogicalToDeviceUnits(10)) / 2;
                 DrawStatusIcon(g, bubble.Message.Status, iconX, iconY, metaColor);
             }
+        }
+
+        private Bitmap? LoadMediaImage(string path)
+        {
+            if (_mediaImageCache.TryGetValue(path, out Bitmap? cached))
+            {
+                return cached;
+            }
+
+            if (_unavailableMediaImages.Contains(path) || !File.Exists(path))
+            {
+                _unavailableMediaImages.Add(path);
+                return null;
+            }
+
+            try
+            {
+                using Image source = Image.FromFile(path);
+                var image = new Bitmap(source);
+                if (_mediaImageCache.Count >= 64)
+                {
+                    string oldestPath = _mediaImageCache.Keys.First();
+                    _mediaImageCache[oldestPath].Dispose();
+                    _mediaImageCache.Remove(oldestPath);
+                }
+                _mediaImageCache.Add(path, image);
+                return image;
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or OutOfMemoryException)
+            {
+                _unavailableMediaImages.Add(path);
+                return null;
+            }
+        }
+
+        private static void DrawMediaImage(Graphics graphics, Image image, Rectangle bounds, int radius)
+        {
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                return;
+            }
+
+            float scale = Math.Min((float)bounds.Width / image.Width, (float)bounds.Height / image.Height);
+            int width = Math.Max(1, (int)(image.Width * scale));
+            int height = Math.Max(1, (int)(image.Height * scale));
+            var destination = new Rectangle(
+                bounds.X + (bounds.Width - width) / 2,
+                bounds.Y + (bounds.Height - height) / 2,
+                width,
+                height);
+
+            using var clip = new GraphicsPath();
+            int diameter = Math.Min(radius * 2, Math.Min(destination.Width, destination.Height));
+            clip.AddArc(destination.X, destination.Y, diameter, diameter, 180, 90);
+            clip.AddArc(destination.Right - diameter, destination.Y, diameter, diameter, 270, 90);
+            clip.AddArc(destination.Right - diameter, destination.Bottom - diameter, diameter, diameter, 0, 90);
+            clip.AddArc(destination.X, destination.Bottom - diameter, diameter, diameter, 90, 90);
+            clip.CloseFigure();
+
+            GraphicsState state = graphics.Save();
+            graphics.SetClip(clip);
+            graphics.DrawImage(image, destination);
+            graphics.Restore(state);
         }
 
         private void DrawStatusIcon(Graphics g, MessageStatus status, int x, int y, Color metaColor)
@@ -624,6 +725,11 @@ namespace WHATSAPP_CHAPT.App.Controls
         {
             if (disposing)
             {
+                foreach (Bitmap image in _mediaImageCache.Values)
+                {
+                    image.Dispose();
+                }
+                _mediaImageCache.Clear();
                 _fontRegular.Dispose();
                 _fontItalic.Dispose();
                 _fontAuthor.Dispose();

@@ -13,7 +13,6 @@ namespace WHATSAPP_CHAPT.App.Forms
     /// Panneau de conversation Meta AI intégrant GroqAiService.
     /// - Affiche l'historique local de la conversation (en mémoire uniquement).
     /// - Zone de saisie + bouton Envoyer + indicateur de traitement.
-    /// - Mode démo sans clé Groq : réponses clairement marquées [DÉMO].
     /// - Ne bloque jamais le thread UI.
     /// </summary>
     public sealed class MetaAiForm : Form
@@ -76,7 +75,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(8, 0, 0, 0),
                 BackColor = Color.FromArgb(18, 18, 18),
-                Text = _groq.HasKey ? "Prêt · Groq connecté" : "Mode démo (aucune clé Groq)"
+                Text = _groq.HasKey ? "Prêt · Groq connecté" : "Clé Groq non configurée"
             };
 
             if (!_groq.HasKey) _lblStatus.ForeColor = Color.FromArgb(220, 150, 50);
@@ -133,7 +132,7 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             AppendHistory("Meta AI", _groq.HasKey
                 ? "Bonjour ! Je suis Meta AI, propulsé par Groq. Comment puis-je vous aider ?"
-                : "[DÉMO] Bonjour ! Vous êtes en mode démonstration. Ajoutez une clé Groq dans Config/groq.settings.json pour activer les réponses réelles.");
+                : "Bonjour ! Ajoutez votre clé Groq dans les paramètres pour activer les réponses.");
         }
 
         private async void SendMessageAsync()
@@ -167,7 +166,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                     var answer = response ?? "[Réponse vide]";
                     _history.Add(("assistant", answer));
                     AppendHistory("Meta AI", answer);
-                    _lblStatus.Text = _groq.HasKey ? "Prêt · Groq connecté" : "Mode démo (aucune clé Groq)";
+                    _lblStatus.Text = _groq.HasKey ? "Prêt · Groq connecté" : "Clé Groq non configurée";
                     _lblStatus.ForeColor = _groq.HasKey ? Color.FromArgb(100, 200, 100) : Color.FromArgb(220, 150, 50);
                 }
 

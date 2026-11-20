@@ -20,12 +20,14 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly Button _btnColor;
         private readonly IAvatarProvider? _avatars;
         private readonly Guid _ownerId;
+        private readonly ComboBox _themeMode;
         private Color _selectedColor;
 
         public string DisplayName => _txtName.Text.Trim();
         public string LocalIp => _txtIp.Text.Trim();
         public string Identifier => _txtGuid.Text.Trim();
         public Color ThemeColor => _selectedColor;
+        public string ThemeMode => _themeMode.SelectedIndex == 1 ? "light" : "dark";
 
         public SettingsForm(string currentName, string currentIp, Guid currentId, Color currentColor, IAvatarProvider? avatars = null)
         {
@@ -34,7 +36,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             _ownerId = currentId;
 
             Text = "Paramètres";
-            Size = new Size(420, 420);
+            Size = new Size(420, 440);
             StartPosition = FormStartPosition.CenterParent;
             BackColor = Theme.AppBackground;
             ForeColor = Theme.TextPrimary;
@@ -132,18 +134,37 @@ namespace WHATSAPP_CHAPT.App.Forms
                 }
             };
 
+            var lblTheme = new Label
+            {
+                Text = "Interface :",
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = Theme.TextPrimary,
+                Location = new Point(left, 238),
+                AutoSize = true
+            };
+            _themeMode = new ComboBox
+            {
+                Location = new Point(left, 261),
+                Width = 160,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Theme.SearchBackground,
+                ForeColor = Theme.TextPrimary
+            };
+            _themeMode.Items.AddRange(new object[] { "Sombre", "Clair" });
+            _themeMode.SelectedIndex = Theme.AppBackground.R > 200 ? 1 : 0;
+
             // Couleur
             var lblColor = new Label
             {
                 Text = "Couleur d'accentuation :",
                 Font = new Font("Segoe UI", 9.5f),
                 ForeColor = Theme.TextPrimary,
-                Location = new Point(left, 238),
+                Location = new Point(left, 290),
                 AutoSize = true
             };
             _btnColor = new Button
             {
-                Location = new Point(left, 261),
+                Location = new Point(left, 313),
                 Width = 120,
                 Height = 30,
                 BackColor = _selectedColor,
@@ -167,7 +188,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 Text = "Enregistrer",
                 DialogResult = DialogResult.OK,
-                Location = new Point(190, 320),
+                Location = new Point(190, 365),
                 Width = 90,
                 Height = 32,
                 BackColor = Theme.Accent,
@@ -180,7 +201,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 Text = "Annuler",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(290, 320),
+                Location = new Point(290, 365),
                 Width = 90,
                 Height = 32,
                 BackColor = Theme.Panel,
@@ -196,6 +217,8 @@ namespace WHATSAPP_CHAPT.App.Forms
             Controls.Add(lblGuid);
             Controls.Add(btnPhoto);
             Controls.Add(_txtGuid);
+            Controls.Add(lblTheme);
+            Controls.Add(_themeMode);
             Controls.Add(lblColor);
             Controls.Add(_btnColor);
             Controls.Add(btnOk);

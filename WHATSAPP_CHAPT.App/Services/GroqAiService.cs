@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -17,7 +18,10 @@ namespace WHATSAPP_CHAPT.App.Services
     /// </summary>
     public sealed class GroqAiService : IDisposable
     {
-        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        public const string DefaultTranscriptionModel = "whisper-large-v3-turbo";
+
+        private readonly HttpClient _http;
+        private readonly bool _ownsHttpClient;
         private readonly string _apiKey;
         private readonly string _model;
         private readonly string _baseUrl;
@@ -27,6 +31,8 @@ namespace WHATSAPP_CHAPT.App.Services
 
         public GroqAiService()
         {
+            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            _ownsHttpClient = true;
             var configPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config", "groq.settings.json");
             if (!System.IO.File.Exists(configPath))
             {
@@ -52,6 +58,14 @@ namespace WHATSAPP_CHAPT.App.Services
                 _model = "llama-3.3-70b-versatile";
                 _baseUrl = "https://api.groq.com/openai/v1";
             }
+        }
+
+        internal GroqAiService(HttpClient http, string apiKey, string baseUrl)
+        {
+            _http = http ?? throw new ArgumentNullException(nameof(http));
+            _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+            _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
+            _model = "llama-3.3-70b-versatile";
         }
 
         /// <summary>
@@ -111,11 +125,112 @@ namespace WHATSAPP_CHAPT.App.Services
             }
         }
 
+        public async Task<(string? Transcription, string? ErrorMessage)> TranscribeAudioAsync(
+            string audioFilePath,
+            string model,
+            string language,
+            CancellationToken ct = default)
+        {
+            if (!HasKey)
+            {
+                return (null, "Clé API Groq manquante.");
+            }
+
+            try
+            {
+                using var file = new FileStream(audioFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var form = new MultipartFormDataContent();
+                using var fileContent = new StreamContent(file);
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue(GetAudioContentType(audioFilePath));
+                form.Add(fileContent, "file", Path.GetFileName(audioFilePath));
+                form.Add(new StringContent(model), "model");
+                form.Add(new StringContent("json"), "response_format");
+                form.Add(new StringContent(language), "language");
+
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    _baseUrl.TrimEnd('/') + "/audio/transcriptions")
+                {
+                    Content = form
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+
+                using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    if ((int)response.StatusCode == 401)
+                    {
+                        return (null, "Clé Groq invalide ou non autorisée (HTTP 401).");
+                    }
+
+                    if ((int)response.StatusCode == 429)
+                    {
+                        string retryAfter = response.Headers.RetryAfter?.Delta is TimeSpan delay
+                            ? $" Réessayez dans {Math.Ceiling(delay.TotalSeconds)} secondes."
+                            : string.Empty;
+                        return (null, $"Limite de transcription Groq atteinte (HTTP 429).{retryAfter}");
+                    }
+
+                    return (null, $"Erreur Groq HTTP {(int)response.StatusCode} pendant la transcription.");
+                }
+
+                string responseJson = await response.Content.ReadAsStringAsync(ct);
+                using var document = JsonDocument.Parse(responseJson);
+                if (document.RootElement.TryGetProperty("text", out JsonElement text)
+                    && text.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(text.GetString()))
+                {
+                    return (text.GetString(), null);
+                }
+
+                return (null, "La réponse de transcription Groq ne contient aucun texte.");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return (null, "Transcription annulée.");
+            }
+            catch (OperationCanceledException)
+            {
+                return (null, "Délai de transcription dépassé. Vérifiez votre connexion Internet.");
+            }
+            catch (HttpRequestException)
+            {
+                return (null, "Impossible de joindre Groq pour la transcription. Vérifiez votre connexion Internet.");
+            }
+            catch (JsonException)
+            {
+                return (null, "Réponse de transcription Groq illisible.");
+            }
+            catch (IOException)
+            {
+                return (null, "Le fichier audio n'a pas pu être lu.");
+            }
+        }
+
+        private static string GetAudioContentType(string path)
+        {
+            return Path.GetExtension(path).ToLowerInvariant() switch
+            {
+                ".flac" => "audio/flac",
+                ".mp3" => "audio/mpeg",
+                ".mp4" => "audio/mp4",
+                ".mpeg" or ".mpga" => "audio/mpeg",
+                ".m4a" => "audio/mp4",
+                ".ogg" => "audio/ogg",
+                ".wav" => "audio/wav",
+                ".webm" => "audio/webm",
+                _ => "application/octet-stream"
+            };
+        }
+
         public void Dispose()
         {
             if (!_disposed)
             {
-                _http.Dispose();
+                if (_ownsHttpClient)
+                {
+                    _http.Dispose();
+                }
                 _disposed = true;
             }
         }

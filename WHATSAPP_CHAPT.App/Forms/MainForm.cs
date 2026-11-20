@@ -28,6 +28,9 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly ProfileStore? _profileStore;
         private readonly AvatarCache _headerAvatarCache;
         private readonly Dictionary<Guid, string> _drafts = new();
+        private readonly Dictionary<Guid, string> _transcriptions = new();
+        private GroqAiService? _groqAiService;
+        private AudioTranscriptionCacheService? _audioTranscriptionService;
 
         private NavigationBar? _navBar;
 
@@ -74,6 +77,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                 {
                     return new Icon(path);
                 }
+
                 catch
                 {
                 }
@@ -96,6 +100,92 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 return SystemIcons.Application;
             }
+        }
+
+        private async Task TranscribeMessageAsync(MessageViewItem message)
+        {
+            if (string.IsNullOrWhiteSpace(message.MediaPath))
+            {
+                return;
+            }
+
+            if (!HasTranscriptionConsent())
+            {
+                DialogResult consent = MessageBox.Show(
+                    this,
+                    "Le fichier audio sélectionné sera envoyé au service Groq sur Internet pour être transcrit. Continuer ?",
+                    "Consentement à la transcription",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information);
+                if (consent != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                try
+                {
+                    string consentPath = GetTranscriptionConsentPath();
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(consentPath)!);
+                    System.IO.File.WriteAllText(consentPath, "granted");
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    ShowStatusMessage($"Impossible d'enregistrer le consentement : {ex.Message}");
+                    return;
+                }
+            }
+
+            _groqAiService ??= new GroqAiService();
+            _audioTranscriptionService ??= new AudioTranscriptionCacheService(_groqAiService);
+
+            var progress = new Progress<string>(ShowStatusMessage);
+            var result = await _audioTranscriptionService.TranscribeAsync(
+                message.MediaPath,
+                progress,
+                model: GroqAiService.DefaultTranscriptionModel,
+                language: "fr");
+
+            if (result.Status != AudioTranscriptionCacheService.TranscriptionStatus.Done)
+            {
+                ShowStatusMessage(result.Error ?? "La transcription a échoué.");
+                return;
+            }
+
+            _transcriptions[message.Id] = result.Transcription;
+            ShowStatusMessage("Transcription terminée.");
+            await LoadMessagesForSelectedConversationAsync();
+        }
+
+        private bool HasTranscriptionConsent()
+        {
+            try
+            {
+                return string.Equals(
+                    System.IO.File.ReadAllText(GetTranscriptionConsentPath()).Trim(),
+                    "granted",
+                    StringComparison.Ordinal);
+            }
+            catch (System.IO.FileNotFoundException)
+            {
+                return false;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return false;
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            {
+                ShowStatusMessage($"Impossible de lire le consentement : {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string GetTranscriptionConsentPath()
+        {
+            return System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WHATSAPP_CHAPT",
+                "transcription-consent.txt");
         }
 
         /// <summary>
@@ -276,7 +366,8 @@ namespace WHATSAPP_CHAPT.App.Forms
             _inputControl.EditCancelled += OnEditCancelled;
             _inputControl.AttachmentRequested += OnAttachmentRequested;
             _inputControl.EmojiRequested += OnEmojiRequested;
-            _inputControl.VoiceRequested += OnVoiceRequested;
+            _inputControl.VoiceRecordingCompleted += OnVoiceRecordingCompleted;
+            _inputControl.VoiceRecordingStatus += ShowStatusMessage;
 
             // Bandeau inférieur d'information et d'erreur
             _statusBannerPanel = new Panel
@@ -822,9 +913,34 @@ namespace WHATSAPP_CHAPT.App.Forms
             menu.ShowAt(_inputControl, location);
         }
 
-        private void OnVoiceRequested()
+        private async void OnVoiceRecordingCompleted(string audioPath)
         {
-            OnAttachmentRequested("voicerecord");
+            if (!_selectedConversationId.HasValue)
+            {
+                ShowStatusMessage("Sélectionnez une conversation avant d’envoyer un vocal.");
+                return;
+            }
+
+            if (!System.IO.File.Exists(audioPath))
+            {
+                ShowStatusMessage("Le fichier vocal enregistré est introuvable.");
+                return;
+            }
+
+            try
+            {
+                await _service.SendMediaMessageAsync(
+                    _selectedConversationId.Value,
+                    audioPath,
+                    "voice",
+                    new System.IO.FileInfo(audioPath).Length);
+                _messageListControl.ScrollToBottom();
+                ShowStatusMessage("Message vocal envoyé.");
+            }
+            catch (Exception ex)
+            {
+                ShowStatusMessage($"Envoi du message vocal impossible : {ex.Message}");
+            }
         }
 
         private void OnMediaClicked(string mediaPath, string mediaType)
@@ -876,28 +992,6 @@ namespace WHATSAPP_CHAPT.App.Forms
         private async void OnAttachmentRequested(string kind)
         {
             if (!_selectedConversationId.HasValue) return;
-
-            if (kind == "voicerecord")
-            {
-                string voiceMediaRoot = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "WHATSAPP_CHAPT", "Media");
-                System.IO.Directory.CreateDirectory(voiceMediaRoot);
-                string voicePath = System.IO.Path.Combine(voiceMediaRoot, $"voice_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.wav");
-                using var recorder = new VoiceRecorderForm(voicePath);
-                if (recorder.ShowDialog(this) == DialogResult.OK
-                    && System.IO.File.Exists(recorder.OutputPath))
-                {
-                    await _service.SendMediaMessageAsync(
-                        _selectedConversationId.Value,
-                        recorder.OutputPath,
-                        "audio",
-                        new System.IO.FileInfo(recorder.OutputPath).Length);
-                    _messageListControl.ScrollToBottom();
-                    ShowStatusMessage("Message vocal envoyé.");
-                }
-                return;
-            }
 
             if (kind == "screenshot")
             {
@@ -1112,11 +1206,15 @@ namespace WHATSAPP_CHAPT.App.Forms
                 IsDeleted = msg.IsDeleted,
                 MediaPath = msg.MediaPath,
                 MediaType = msg.MediaType,
-                MediaSize = msg.MediaSize
+                MediaSize = msg.MediaSize,
+                Transcription = _transcriptions.GetValueOrDefault(msg.Id)
             };
 
             var actions = MessageActions.GetAvailableActions(viewItem);
-            if (actions.Count == 0)
+            bool canTranscribe = viewItem.HasMedia
+                && (string.Equals(viewItem.MediaType, "audio", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(viewItem.MediaType, "voice", StringComparison.OrdinalIgnoreCase));
+            if (actions.Count == 0 && !viewItem.HasMedia)
             {
                 return;
             }
@@ -1157,6 +1255,12 @@ namespace WHATSAPP_CHAPT.App.Forms
                     }
                 };
                 contextMenu.Items.Add(downloadMedia);
+                if (canTranscribe)
+                {
+                    var transcribe = new ToolStripMenuItem("Transcrire");
+                    transcribe.Click += async (s, e) => await TranscribeMessageAsync(viewItem);
+                    contextMenu.Items.Add(transcribe);
+                }
                 contextMenu.Items.Add(new ToolStripSeparator());
             }
 
@@ -1715,7 +1819,8 @@ namespace WHATSAPP_CHAPT.App.Forms
                     ShowAuthorName = showAuthorName,
                     MediaPath = m.MediaPath,
                     MediaType = m.MediaType,
-                    MediaSize = m.MediaSize
+                    MediaSize = m.MediaSize,
+                    Transcription = _transcriptions.GetValueOrDefault(m.Id)
                 };
 
                 viewItems.Add(viewItem);
@@ -2024,6 +2129,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                 _statusBannerTimer.Dispose();
                 _avatars.PhotoChanged -= OnAvatarPhotoChanged;
                 _headerAvatarCache.Dispose();
+                _groqAiService?.Dispose();
                 _headerTitleFont.Dispose();
                 _rightEmptyFont.Dispose();
                 _rightSelectedNameFont.Dispose();
