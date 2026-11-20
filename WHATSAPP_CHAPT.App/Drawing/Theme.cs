@@ -52,7 +52,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
         /// <summary>
         /// Couleur d'accentuation bleu ciel (#38BDF8).
         /// </summary>
-        public static readonly Color Accent = Color.FromArgb(0x38, 0xBD, 0xF8);
+        public static Color Accent { get; private set; } = Color.FromArgb(0x38, 0xBD, 0xF8);
 
         /// <summary>
         /// Texte sur fond d'accentuation (#04121C).
@@ -67,7 +67,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
         /// <summary>
         /// Bulle de message sortant (#38BDF8).
         /// </summary>
-        public static readonly Color BubbleOutgoing = Color.FromArgb(0x38, 0xBD, 0xF8);
+        public static Color BubbleOutgoing { get; private set; } = Color.FromArgb(0x38, 0xBD, 0xF8);
 
         /// <summary>
         /// Texte de message sortant (#04121C).
@@ -121,5 +121,11 @@ namespace WHATSAPP_CHAPT.App.Drawing
             Color.FromArgb(0x4F, 0x46, 0xE5), // Indigo
             Color.FromArgb(0xE1, 0x1D, 0x48)  // Rose
         };
+
+        public static void SetAccent(Color color)
+        {
+            Accent = color;
+            BubbleOutgoing = color;
+        }
     }
 }

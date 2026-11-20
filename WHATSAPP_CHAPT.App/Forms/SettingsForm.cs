@@ -4,6 +4,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Drawing;
+using WHATSAPP_CHAPT.App.Services;
 
 namespace WHATSAPP_CHAPT.App.Forms
 {
@@ -17,6 +18,8 @@ namespace WHATSAPP_CHAPT.App.Forms
         private readonly TextBox _txtIp;
         private readonly TextBox _txtGuid;
         private readonly Button _btnColor;
+        private readonly IAvatarProvider? _avatars;
+        private readonly Guid _ownerId;
         private Color _selectedColor;
 
         public string DisplayName => _txtName.Text.Trim();
@@ -24,12 +27,14 @@ namespace WHATSAPP_CHAPT.App.Forms
         public string Identifier => _txtGuid.Text.Trim();
         public Color ThemeColor => _selectedColor;
 
-        public SettingsForm(string currentName, string currentIp, Guid currentId, Color currentColor)
+        public SettingsForm(string currentName, string currentIp, Guid currentId, Color currentColor, IAvatarProvider? avatars = null)
         {
             _selectedColor = currentColor;
+            _avatars = avatars;
+            _ownerId = currentId;
 
             Text = "Paramètres";
-            Size = new Size(420, 360);
+            Size = new Size(420, 420);
             StartPosition = FormStartPosition.CenterParent;
             BackColor = Theme.AppBackground;
             ForeColor = Theme.TextPrimary;
@@ -98,18 +103,47 @@ namespace WHATSAPP_CHAPT.App.Forms
                 BorderStyle = BorderStyle.FixedSingle
             };
 
+            var btnPhoto = new Button
+            {
+                Text = "Modifier la photo de profil",
+                Location = new Point(left, 195),
+                Width = 360,
+                Height = 32,
+                BackColor = Theme.Panel,
+                ForeColor = Theme.TextPrimary,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnPhoto.FlatAppearance.BorderSize = 0;
+            btnPhoto.Click += (s, e) =>
+            {
+                if (_avatars == null) return;
+                using var ofd = new OpenFileDialog
+                {
+                    Title = "Choisir une nouvelle photo de profil",
+                    Filter = "Images (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp"
+                };
+                if (ofd.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (!_avatars.SetPhoto(_ownerId, ofd.FileName))
+                    {
+                        MessageBox.Show(this, "Impossible de charger cette image.", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            };
+
             // Couleur
             var lblColor = new Label
             {
                 Text = "Couleur d'accentuation :",
                 Font = new Font("Segoe UI", 9.5f),
                 ForeColor = Theme.TextPrimary,
-                Location = new Point(left, 195),
+                Location = new Point(left, 238),
                 AutoSize = true
             };
             _btnColor = new Button
             {
-                Location = new Point(left, 218),
+                Location = new Point(left, 261),
                 Width = 120,
                 Height = 30,
                 BackColor = _selectedColor,
@@ -133,7 +167,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 Text = "Enregistrer",
                 DialogResult = DialogResult.OK,
-                Location = new Point(190, 270),
+                Location = new Point(190, 320),
                 Width = 90,
                 Height = 32,
                 BackColor = Theme.Accent,
@@ -146,7 +180,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             {
                 Text = "Annuler",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(290, 270),
+                Location = new Point(290, 320),
                 Width = 90,
                 Height = 32,
                 BackColor = Theme.Panel,
@@ -160,6 +194,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             Controls.Add(lblIp);
             Controls.Add(_txtIp);
             Controls.Add(lblGuid);
+            Controls.Add(btnPhoto);
             Controls.Add(_txtGuid);
             Controls.Add(lblColor);
             Controls.Add(_btnColor);

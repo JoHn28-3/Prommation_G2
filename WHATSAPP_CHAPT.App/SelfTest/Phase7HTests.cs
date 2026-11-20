@@ -59,8 +59,15 @@ namespace WHATSAPP_CHAPT.App.SelfTest
             }
 
             public Task StartBroadcastListenerAsync() => Task.CompletedTask;
+            public Task StartTcpListenerAsync() => Task.CompletedTask;
+            public Task SendPayloadAsync(string ip, string payload) => Task.CompletedTask;
 
             public event EventHandler<(string Ip, string RemoteId)>? Discovered
+            {
+                add { }
+                remove { }
+            }
+            public event EventHandler<(string Ip, string Payload)>? PayloadReceived
             {
                 add { }
                 remove { }

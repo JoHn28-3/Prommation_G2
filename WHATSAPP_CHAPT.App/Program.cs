@@ -3,6 +3,8 @@ using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Forms;
 using WHATSAPP_CHAPT.App.SelfTest;
 using WHATSAPP_CHAPT.App.Services;
+using WHATSAPP_CHAPT.Storage;
+using WHATSAPP_CHAPT.Core.Models;
 
 namespace WHATSAPP_CHAPT.App;
 
@@ -56,7 +58,18 @@ static class Program
             System.IO.File.WriteAllText(logPath, $"[UnobservedTask]\n{e.Exception}");
         };
 
-        var chatService = new DemoChatService();
+        string dataFolder = DataFolder.GetPath(args);
+        var identity = new IdentityManager(dataFolder);
+        var storage = new StorageContext(dataFolder);
+        storage.SetLocalIdentity(identity.UserId, identity.PublicKey);
+
+        var connection = new ConnectionService(storage);
+        var chatService = new DemoChatService(
+            new UserIdentity { Id = identity.UserId, DisplayName = "Moi" },
+            storage,
+            connection);
+        _ = connection.StartTcpListenerAsync();
+        _ = connection.StartBroadcastListenerAsync();
         var avatarStore = new LocalAvatarStore();
         Application.Run(new MainForm(chatService, avatarStore, () => chatService.SimulateIncomingMessage()));
     }    

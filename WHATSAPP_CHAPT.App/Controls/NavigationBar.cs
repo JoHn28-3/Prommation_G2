@@ -20,7 +20,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         public NavigationBar()
         {
             Dock = DockStyle.Left;
-            Width = LogicalToDeviceUnits(60);
+            Width = LogicalToDeviceUnits(70);
             BackColor = Theme.Panel;
             AutoSize = false;
             BuildButtons();
@@ -41,9 +41,10 @@ namespace WHATSAPP_CHAPT.App.Controls
                 ("discussions", "Discussions", "Assets/Icons/discussions.png"),
                 ("calls", "Appels", "Assets/Icons/calls.png"),
                 ("status", "Statuts", "Assets/Icons/status.png"),
+                ("metaai", "Meta AI", "Assets/Icons/metaai.png"),
                 ("contacts", "Contacts", "Assets/Icons/contacts.png"),
-                ("settings", "Paramètres", "Assets/Icons/settings.png"),
-                ("metaai", "Meta AI", "Assets/Icons/metaai.png")
+                ("archives", "Archives", "Assets/Icons/document.png"),
+                ("media", "Médias", "Assets/Icons/image.png")
             };
 
             int top = LogicalToDeviceUnits(12);
@@ -63,10 +64,18 @@ namespace WHATSAPP_CHAPT.App.Controls
                 top += btn.Height + LogicalToDeviceUnits(8);
             }
 
-            // Ensure the last button (metaai) stays at the bottom.
-            var metaBtn = _byKey["metaai"];
-            metaBtn.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-            metaBtn.Location = new Point(0, Height - metaBtn.Height - LogicalToDeviceUnits(12));
+            var profile = new NavigationButton
+            {
+                Name = "nav_profile",
+                Image = LoadIcon("Assets/Icons/contacts.png"),
+                ToolTipText = "Profil et paramètres",
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                Location = new Point(LogicalToDeviceUnits(9), Height - LogicalToDeviceUnits(64))
+            };
+            profile.Click += (s, e) => OnButtonClicked("profile");
+            _buttons.Add(profile);
+            _byKey["profile"] = profile;
+            Controls.Add(profile);
         }
 
         private Image? LoadIcon(string relativePath)

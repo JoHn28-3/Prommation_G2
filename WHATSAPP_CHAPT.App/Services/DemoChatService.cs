@@ -3,7 +3,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
+using WHATSAPP_CHAPT.Storage;
+using WHATSAPP_CHAPT.Storage.Models;
 using WHATSAPP_CHAPT.Core.Services;
 using WHATSAPP_CHAPT.Core.Events;
 using WHATSAPP_CHAPT.Core.Models;
@@ -25,19 +30,45 @@ namespace WHATSAPP_CHAPT.App.Services
         private readonly Dictionary<Guid, List<WHATSAPP_CHAPT.Core.Models.Message>> _messagesByConversation = new();
         private readonly Dictionary<Guid, DateTimeOffset> _lastRead = new();
         private readonly Random _random = new();
+        private readonly StorageContext? _storage;
+        private readonly IConnectionService? _connection;
 
         /// <summary>
         /// Initialise les données de démonstration.
         /// </summary>
         public DemoChatService()
         {
-            // Utilisateur actuel – GUID fixe.
             CurrentUser = new UserIdentity
             {
                 Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 DisplayName = "Moi"
             };
+            InitializeDemoData();
+        }
 
+        public DemoChatService(StorageContext storage) : this()
+        {
+            _storage = storage;
+            LoadPersistedPeers();
+        }
+
+        public DemoChatService(UserIdentity currentUser, StorageContext storage) : this()
+        {
+            CurrentUser = currentUser;
+            _storage = storage;
+            _storage.SetLocalIdentity(currentUser.Id, Array.Empty<byte>());
+            LoadPersistedPeers();
+        }
+
+        public DemoChatService(UserIdentity currentUser, StorageContext storage, IConnectionService connection)
+            : this(currentUser, storage)
+        {
+            _connection = connection;
+            _connection.PayloadReceived += OnPayloadReceived;
+        }
+
+        private void InitializeDemoData()
+        {
             // Contacts.
             var paul = new Contact { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), DisplayName = "Paul" };
             var lea = new Contact { Id = Guid.Parse("33333333-3333-3333-3333-333333333333"), DisplayName = "Léa" };
@@ -208,18 +239,36 @@ namespace WHATSAPP_CHAPT.App.Services
             if (!_messagesByConversation.TryGetValue(conversationId, out var list))
                 return Task.FromResult<IReadOnlyList<ChatMessage>>(Array.Empty<ChatMessage>());
 
+            var now = DateTimeOffset.Now;
+            foreach (var expired in list.Where(m => m.ExpiresAt.HasValue && m.ExpiresAt.Value <= now).ToList())
+            {
+                list.Remove(expired);
+                if (!string.IsNullOrWhiteSpace(expired.MediaPath))
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(expired.MediaPath))
+                            System.IO.File.Delete(expired.MediaPath);
+                    }
+                    catch
+                    {
+                        // Le nettoyage local sera retente ultérieurement.
+                    }
+                }
+            }
             var ordered = list.OrderBy(m => m.Timestamp).ToList().AsReadOnly();
             return Task.FromResult<IReadOnlyList<ChatMessage>>(ordered);
         }
 
         /// <inheritdoc/>
-        public Task<ChatMessage> SendMessageAsync(Guid conversationId, string content, Guid? replyToMessageId = null)
+        public async Task<ChatMessage> SendMessageAsync(Guid conversationId, string content, Guid? replyToMessageId = null)
         {
             if (string.IsNullOrWhiteSpace(content))
                 throw new ArgumentException("Le texte du message ne peut être vide.", nameof(content));
 
             if (!_conversations.Any(c => c.Id == conversationId))
                 throw new InvalidOperationException("Conversation inconnue.");
+            var conversation = _conversations.First(c => c.Id == conversationId);
 
             if (replyToMessageId.HasValue && !_messagesByConversation[conversationId].Any(m => m.Id == replyToMessageId.Value))
                 throw new InvalidOperationException("Message de réponse introuvable dans la conversation.");
@@ -236,6 +285,8 @@ namespace WHATSAPP_CHAPT.App.Services
                 IsDeleted = false,
                 ReplyToMessageId = replyToMessageId
             };
+            if (conversation.EphemeralHours > 0)
+                msg.ExpiresAt = msg.Timestamp.AddHours(conversation.EphemeralHours);
 
             _messagesByConversation[conversationId].Add(msg);
             RaiseChatEvent(ChatEventType.MessageAdded, conversationId, msg.Id);
@@ -243,7 +294,33 @@ namespace WHATSAPP_CHAPT.App.Services
             // Simuler la progression du statut.
             SimulateStatusProgression(msg);
 
-            return Task.FromResult(msg);
+            if (_connection != null && conversation.Type == ConversationType.Direct)
+            {
+                var remoteMember = conversation.Members.FirstOrDefault(m => m.UserId != CurrentUser.Id);
+                var contact = remoteMember == null ? null : _contacts.FirstOrDefault(c => c.Id == remoteMember.UserId);
+                if (contact?.IpAddress != null)
+                {
+                    try
+                    {
+                        string payload = JsonSerializer.Serialize(new
+                        {
+                            type = "message",
+                            id = msg.Id,
+                            conversationId,
+                            authorId = CurrentUser.Id,
+                            content,
+                            timestamp = msg.Timestamp
+                        });
+                        await _connection.SendPayloadAsync(contact.IpAddress, payload);
+                    }
+                    catch
+                    {
+                        // Hors ligne : le message reste persistant et pourra etre renvoye apres reconnexion.
+                    }
+                }
+            }
+
+            return msg;
         }
 
         public Task<ChatMessage> SendMediaMessageAsync(Guid conversationId, string mediaPath, string mediaType, long mediaSize)
@@ -252,6 +329,7 @@ namespace WHATSAPP_CHAPT.App.Services
                 throw new ArgumentException("Le fichier média est introuvable.", nameof(mediaPath));
             if (!_conversations.Any(c => c.Id == conversationId))
                 throw new InvalidOperationException("Conversation inconnue.");
+            var conversation = _conversations.First(c => c.Id == conversationId);
 
             var msg = new ChatMessage
             {
@@ -265,6 +343,8 @@ namespace WHATSAPP_CHAPT.App.Services
                 MediaType = mediaType,
                 MediaSize = mediaSize
             };
+            if (conversation.EphemeralHours > 0)
+                msg.ExpiresAt = msg.Timestamp.AddHours(conversation.EphemeralHours);
             _messagesByConversation[conversationId].Add(msg);
             RaiseChatEvent(ChatEventType.MessageAdded, conversationId, msg.Id);
             SimulateStatusProgression(msg);
@@ -315,7 +395,7 @@ namespace WHATSAPP_CHAPT.App.Services
         }
 
         /// <summary>
-        /// Suppression locale : à ne jamais synchroniser avec les autres utilisateurs.
+        /// Supprime le message localement puis informe les pairs connectes.
         /// </summary>
         public async Task<bool> DeleteMessageAsync(Guid messageId)
         {
@@ -329,7 +409,38 @@ namespace WHATSAPP_CHAPT.App.Services
 
                     msg.IsDeleted = true;
                     msg.Content = string.Empty;
+                    if (!string.IsNullOrWhiteSpace(msg.MediaPath))
+                    {
+                        try
+                        {
+                            if (System.IO.File.Exists(msg.MediaPath))
+                                System.IO.File.Delete(msg.MediaPath);
+                        }
+                        catch
+                        {
+                            // L'événement de suppression reste valide meme si le fichier est verrouille.
+                        }
+                        msg.MediaPath = null;
+                    }
                     RaiseChatEvent(ChatEventType.MessageDeleted, msg.ConversationId, msg.Id);
+                    if (_connection != null)
+                    {
+                        var conversation = _conversations.FirstOrDefault(c => c.Id == msg.ConversationId);
+                        var remote = conversation?.Members.FirstOrDefault(m => m.UserId != CurrentUser.Id);
+                        var contact = remote == null ? null : _contacts.FirstOrDefault(c => c.Id == remote.UserId);
+                        if (contact?.IpAddress != null)
+                        {
+                            try
+                            {
+                                string payload = JsonSerializer.Serialize(new { type = "delete", id = msg.Id });
+                                await _connection.SendPayloadAsync(contact.IpAddress, payload);
+                            }
+                            catch
+                            {
+                                // Hors ligne : la suppression locale reste persistance.
+                            }
+                        }
+                    }
                     return true;
                 }
             }
@@ -581,8 +692,98 @@ namespace WHATSAPP_CHAPT.App.Services
             return Task.FromResult(true);
         }
 
+        private void OnPayloadReceived(object? sender, (string Ip, string Payload) packet)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(packet.Payload);
+                JsonElement root = document.RootElement;
+                string? type = root.TryGetProperty("type", out JsonElement typeElement)
+                    ? typeElement.GetString()
+                    : null;
+
+                if (type == "message")
+                {
+                    Guid messageId = root.GetProperty("id").GetGuid();
+                    Guid authorId = root.GetProperty("authorId").GetGuid();
+                    string content = root.GetProperty("content").GetString() ?? string.Empty;
+                    DateTimeOffset timestamp = root.GetProperty("timestamp").GetDateTimeOffset();
+
+                    var contact = _contacts.FirstOrDefault(c => c.Id == authorId);
+                    if (contact == null)
+                    {
+                        contact = new Contact
+                        {
+                            Id = authorId,
+                            DisplayName = $"Pair-{authorId.ToString("N")[..6]}",
+                            IpAddress = packet.Ip
+                        };
+                        _contacts.Add(contact);
+                        _storage?.InsertPeer(contact.Id, contact.DisplayName, packet.Ip);
+                    }
+                    else
+                    {
+                        contact.IpAddress = packet.Ip;
+                        _storage?.InsertPeer(contact.Id, contact.DisplayName, packet.Ip);
+                    }
+
+                    var conversation = _conversations.FirstOrDefault(c =>
+                        c.Type == ConversationType.Direct
+                        && c.Members.Any(m => m.UserId == authorId));
+                    if (conversation == null)
+                    {
+                        conversation = new Conversation
+                        {
+                            Id = Guid.NewGuid(),
+                            Type = ConversationType.Direct,
+                            Members = new List<Member>
+                            {
+                                new Member { UserId = CurrentUser.Id, Role = MemberRole.Member },
+                                new Member { UserId = authorId, Role = MemberRole.Member }
+                            }
+                        };
+                        _conversations.Add(conversation);
+                        _messagesByConversation[conversation.Id] = new List<ChatMessage>();
+                        _lastRead[conversation.Id] = DateTimeOffset.MinValue;
+                    }
+
+                    if (!_messagesByConversation[conversation.Id].Any(m => m.Id == messageId))
+                    {
+                        _messagesByConversation[conversation.Id].Add(new ChatMessage
+                        {
+                            Id = messageId,
+                            ConversationId = conversation.Id,
+                            AuthorId = authorId,
+                            Content = content,
+                            Timestamp = timestamp,
+                            Status = MessageStatus.Delivered
+                        });
+                        RaiseChatEvent(ChatEventType.MessageAdded, conversation.Id, messageId);
+                    }
+                }
+                else if (type == "delete")
+                {
+                    Guid messageId = root.GetProperty("id").GetGuid();
+                    foreach (var list in _messagesByConversation.Values)
+                    {
+                        var msg = list.FirstOrDefault(m => m.Id == messageId);
+                        if (msg == null) continue;
+                        msg.IsDeleted = true;
+                        msg.Content = string.Empty;
+                        msg.MediaPath = null;
+                        RaiseChatEvent(ChatEventType.MessageDeleted, msg.ConversationId, msg.Id);
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Paquet réseau invalide ignore.
+            }
+        }
+
         /// <summary>
-        /// Simule la réception d’un message d’un autre participant.
+        /// Simule la reception d’un message d’un autre participant.
         /// </summary>
         /// <param name="conversationId">Identifiant de la conversation (null = aléatoire).</param>
         public void SimulateIncomingMessage(Guid? conversationId = null)
@@ -633,6 +834,141 @@ namespace WHATSAPP_CHAPT.App.Services
             conv.IsArchived = isArchived;
             RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
             return await Task.FromResult(true);
+        }
+
+        public Task<bool> DeleteConversationAsync(Guid conversationId)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null) return Task.FromResult(false);
+            _conversations.Remove(conv);
+            _messagesByConversation.Remove(conversationId);
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SetConversationMutedAsync(Guid conversationId, bool isMuted)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null) return Task.FromResult(false);
+            conv.IsMuted = isMuted;
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SetConversationPinnedAsync(Guid conversationId, bool isPinned)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null) return Task.FromResult(false);
+            conv.IsPinned = isPinned;
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SetEphemeralAsync(Guid conversationId, int hours)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null || hours is not (0 or 24 or 168 or 2160))
+                return Task.FromResult(false);
+
+            conv.EphemeralHours = hours;
+            foreach (var msg in _messagesByConversation[conversationId])
+            {
+                if (hours > 0)
+                {
+                    msg.ExpiresAt = msg.Timestamp.AddHours(hours);
+                }
+            }
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SetConversationPasswordAsync(Guid conversationId, string? password)
+        {
+            var conv = _conversations.FirstOrDefault(c => c.Id == conversationId);
+            if (conv == null) return Task.FromResult(false);
+            conv.PasswordHash = string.IsNullOrWhiteSpace(password)
+                ? null
+                : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversationId, null);
+            return Task.FromResult(true);
+        }
+
+        public Task<Contact> AddContactAsync(string displayName, string ipAddress)
+        {
+            if (string.IsNullOrWhiteSpace(displayName)) throw new ArgumentException("Nom requis.", nameof(displayName));
+            if (string.IsNullOrWhiteSpace(ipAddress)) throw new ArgumentException("Adresse IP requise.", nameof(ipAddress));
+
+            var existing = _contacts.FirstOrDefault(c => c.DisplayName.Equals(displayName, StringComparison.OrdinalIgnoreCase)
+                || c.IpAddress?.Equals(ipAddress, StringComparison.OrdinalIgnoreCase) == true);
+            if (existing != null)
+            {
+                existing.IpAddress = ipAddress;
+                _storage?.InsertPeer(existing.Id, existing.DisplayName, ipAddress);
+                return Task.FromResult(existing);
+            }
+
+            var contact = new Contact { Id = Guid.NewGuid(), DisplayName = displayName.Trim(), IpAddress = ipAddress.Trim() };
+            _contacts.Add(contact);
+            _storage?.InsertPeer(contact.Id, contact.DisplayName, contact.IpAddress);
+
+            var conversation = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = ConversationType.Direct,
+                Members = new List<Member>
+                {
+                    new Member { UserId = CurrentUser.Id, Role = MemberRole.Member },
+                    new Member { UserId = contact.Id, Role = MemberRole.Member }
+                }
+            };
+            _conversations.Add(conversation);
+            _messagesByConversation[conversation.Id] = new List<ChatMessage>();
+            _lastRead[conversation.Id] = DateTimeOffset.MinValue;
+            RaiseChatEvent(ChatEventType.ConversationUpdated, conversation.Id, null);
+            return Task.FromResult(contact);
+        }
+
+        public Task<bool> DeleteContactAsync(Guid contactId)
+        {
+            var contact = _contacts.FirstOrDefault(c => c.Id == contactId);
+            if (contact == null) return Task.FromResult(false);
+
+            foreach (var conv in _conversations
+                .Where(c => c.Type == ConversationType.Direct
+                    && c.Members.Any(m => m.UserId == contactId))
+                .ToList())
+            {
+                _conversations.Remove(conv);
+                _messagesByConversation.Remove(conv.Id);
+            }
+            _contacts.Remove(contact);
+            _storage?.DeletePeer(contactId);
+            return Task.FromResult(true);
+        }
+
+        private void LoadPersistedPeers()
+        {
+            if (_storage == null) return;
+            foreach (Peer peer in _storage.GetPeers())
+            {
+                if (_contacts.Any(c => c.Id == peer.Id)) continue;
+                var contact = new Contact { Id = peer.Id, DisplayName = peer.Name, IpAddress = peer.IpAddress };
+                _contacts.Add(contact);
+
+                var conversation = new Conversation
+                {
+                    Id = Guid.NewGuid(),
+                    Type = ConversationType.Direct,
+                    Members = new List<Member>
+                    {
+                        new Member { UserId = CurrentUser.Id, Role = MemberRole.Member },
+                        new Member { UserId = contact.Id, Role = MemberRole.Member }
+                    }
+                };
+                _conversations.Add(conversation);
+                _messagesByConversation[conversation.Id] = new List<ChatMessage>();
+                _lastRead[conversation.Id] = DateTimeOffset.MinValue;
+            }
         }
     }
 }

@@ -29,5 +29,9 @@ namespace WHATSAPP_CHAPT.App.Services
         /// Événement déclenché lorsqu'un pair est découvert via broadcast.
         /// </summary>
         event EventHandler<(string Ip, string RemoteId)> Discovered;
+
+        Task StartTcpListenerAsync();
+        Task SendPayloadAsync(string ip, string payload);
+        event EventHandler<(string Ip, string Payload)> PayloadReceived;
     }
 }

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WHATSAPP_CHAPT.App.Controls;
@@ -22,6 +23,9 @@ namespace WHATSAPP_CHAPT.App.Forms
     /// </summary>
     public sealed class MainForm : Form
     {
+        [DllImport("winmm.dll", EntryPoint = "mciSendStringW", CharSet = CharSet.Unicode)]
+        private static extern int SendMci(string command, string? returnBuffer, int returnSize, IntPtr callback);
+
         private readonly IChatService _service;
         private readonly IAvatarProvider _avatars;
         private readonly Action? _simulateIncoming;
@@ -153,10 +157,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             };
             _listControl.SelectedConversationChanged += OnConversationSelected;
 
-            if (_simulateIncoming != null)
-            {
-                _listControl.ConversationRightClicked += OnConversationRightClicked;
-            }
+            _listControl.ConversationRightClicked += OnConversationRightClicked;
 
             // Zone de recherche
             _searchPanel = new Panel
@@ -255,6 +256,7 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Visible = false
             };
             _messageListControl.MessageRightClicked += OnMessageRightClicked;
+            _messageListControl.MediaClicked += OnMediaClicked;
 
             // Contrôle de saisie des messages
             _inputControl = new MessageInputControl
@@ -432,6 +434,25 @@ namespace WHATSAPP_CHAPT.App.Forms
                         dlg.ShowDialog(this);
                     }
                     break;
+                case "profile":
+                    OpenSettingsDialog();
+                    break;
+                case "contacts":
+                    OpenNewContactDialog();
+                    break;
+                case "archives":
+                    ShowStatusMessage("Affichage des conversations archivees");
+                    _ = ReloadConversationsAsync();
+                    break;
+                case "calls":
+                    ShowStatusMessage("Historique des appels disponible depuis une discussion");
+                    break;
+                case "status":
+                    ShowStatusMessage("Les statuts seront publies depuis cette vue");
+                    break;
+                case "media":
+                    ShowStatusMessage("Les medias sont accessibles depuis les discussions");
+                    break;
                 default:
                     ShowStatusMessage($"Section : {key}");
                     break;
@@ -514,19 +535,168 @@ namespace WHATSAPP_CHAPT.App.Forms
             OnAttachmentRequested("voicerecord");
         }
 
+        private void OnMediaClicked(string mediaPath, string mediaType)
+        {
+            if (string.IsNullOrWhiteSpace(mediaPath) || !System.IO.File.Exists(mediaPath))
+            {
+                ShowStatusMessage("Le fichier media n'est plus disponible.");
+                return;
+            }
+
+            if (mediaType.Equals("image", StringComparison.OrdinalIgnoreCase))
+            {
+                var preview = new Form
+                {
+                    Text = "Apercu image",
+                    Size = new Size(800, 600),
+                    StartPosition = FormStartPosition.CenterParent,
+                    BackColor = Theme.AppBackground
+                };
+                var picture = new PictureBox
+                {
+                    Dock = DockStyle.Fill,
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    Image = Image.FromFile(mediaPath)
+                };
+                preview.FormClosed += (s, e) =>
+                {
+                    picture.Image?.Dispose();
+                };
+                preview.Controls.Add(picture);
+                preview.Show(this);
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = mediaPath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                ShowStatusMessage($"Ouverture impossible : {ex.Message}");
+            }
+        }
+
         private async void OnAttachmentRequested(string kind)
         {
             if (!_selectedConversationId.HasValue) return;
+
+            if (kind == "voicerecord")
+            {
+                string voiceMediaRoot = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "WHATSAPP_CHAPT", "Media");
+                System.IO.Directory.CreateDirectory(voiceMediaRoot);
+                string voicePath = System.IO.Path.Combine(voiceMediaRoot, $"voice_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.wav");
+
+                SendMci("close voice", null, 0, IntPtr.Zero);
+                int openResult = SendMci($"open new Type waveaudio Alias voice", null, 0, IntPtr.Zero);
+                if (openResult != 0)
+                {
+                    ShowStatusMessage("Microphone indisponible.");
+                    return;
+                }
+                SendMci("record voice", null, 0, IntPtr.Zero);
+                var stopResult = MessageBox.Show(this,
+                    "Enregistrement vocal en cours. Cliquez sur OK pour terminer.",
+                    "Message vocal",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Information);
+                SendMci("stop voice", null, 0, IntPtr.Zero);
+                SendMci($"save voice \"{voicePath}\"", null, 0, IntPtr.Zero);
+                SendMci("close voice", null, 0, IntPtr.Zero);
+
+                if (stopResult == DialogResult.OK && System.IO.File.Exists(voicePath))
+                {
+                    var preview = MessageBox.Show(this,
+                        "Ecouter l'enregistrement avant l'envoi ?",
+                        "Apercu vocal",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (preview == DialogResult.Yes)
+                    {
+                        SendMci("close voicepreview", null, 0, IntPtr.Zero);
+                        SendMci($"open \"{voicePath}\" alias voicepreview", null, 0, IntPtr.Zero);
+                        SendMci("play voicepreview", null, 0, IntPtr.Zero);
+                    }
+
+                    var send = MessageBox.Show(this,
+                        "Envoyer ce message vocal ?",
+                        "Envoyer",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (send == DialogResult.Yes)
+                    {
+                        await _service.SendMediaMessageAsync(
+                            _selectedConversationId.Value,
+                            voicePath,
+                            "audio",
+                            new System.IO.FileInfo(voicePath).Length);
+                        _messageListControl.ScrollToBottom();
+                    }
+                }
+                return;
+            }
+
+            if (kind == "sticker")
+            {
+                string stickersFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Stickers");
+                if (!System.IO.Directory.Exists(stickersFolder))
+                {
+                    ShowStatusMessage("Aucun sticker installe.");
+                    return;
+                }
+                var stickerFiles = System.IO.Directory.GetFiles(stickersFolder, "*.png");
+                if (stickerFiles.Length == 0)
+                {
+                    ShowStatusMessage("Aucun fichier sticker PNG disponible.");
+                    return;
+                }
+
+                var menu = new ContextMenuStrip
+                {
+                    Renderer = new ThemeContextMenuRenderer(),
+                    BackColor = Theme.Header,
+                    ForeColor = Theme.TextPrimary
+                };
+                foreach (string stickerFile in stickerFiles)
+                {
+                    var item = new ToolStripMenuItem(System.IO.Path.GetFileNameWithoutExtension(stickerFile));
+                    item.Image = Image.FromFile(stickerFile);
+                    item.Click += async (s, e) =>
+                    {
+                        await _service.SendMediaMessageAsync(
+                            _selectedConversationId.Value,
+                            stickerFile,
+                            "sticker",
+                            new System.IO.FileInfo(stickerFile).Length);
+                        _messageListControl.ScrollToBottom();
+                    };
+                    menu.Items.Add(item);
+                }
+                menu.Show(_inputControl, new Point(0, -menu.PreferredSize.Height));
+                return;
+            }
 
             string filter = kind switch
             {
                 "image" or "photo" => "Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp",
                 "video" => "Vidéos|*.mp4;*.avi;*.mov;*.mkv|Tous les fichiers|*.*",
                 "audio" or "voicerecord" => "Audio|*.mp3;*.wav;*.m4a;*.ogg;*.flac",
+                "document" => "Documents|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.zip|Tous les fichiers|*.*",
                 _ => "Tous les fichiers|*.*"
             };
 
-            using var dialog = new OpenFileDialog { Filter = filter, Title = "Choisir un fichier à joindre" };
+            using var dialog = new OpenFileDialog
+            {
+                Filter = filter,
+                Title = "Choisir un fichier à joindre",
+                Multiselect = kind == "image" || kind == "photo"
+            };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
             string mediaType = kind switch
@@ -541,12 +711,21 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "WHATSAPP_CHAPT", "Media");
             System.IO.Directory.CreateDirectory(mediaRoot);
-            string safeName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}_{System.IO.Path.GetFileName(dialog.FileName)}";
-            string localPath = System.IO.Path.Combine(mediaRoot, safeName);
-            System.IO.File.Copy(dialog.FileName, localPath, overwrite: false);
-            await _service.SendMediaMessageAsync(_selectedConversationId.Value, localPath, mediaType, new System.IO.FileInfo(localPath).Length);
+            foreach (string sourcePath in dialog.FileNames)
+            {
+                string safeName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}_{System.IO.Path.GetFileName(sourcePath)}";
+                string localPath = System.IO.Path.Combine(mediaRoot, safeName);
+                System.IO.File.Copy(sourcePath, localPath, overwrite: false);
+                await _service.SendMediaMessageAsync(
+                    _selectedConversationId.Value,
+                    localPath,
+                    mediaType,
+                    new System.IO.FileInfo(localPath).Length);
+            }
             _messageListControl.ScrollToBottom();
-            ShowStatusMessage("Fichier joint localement à la discussion.");
+            ShowStatusMessage(dialog.FileNames.Length == 1
+                ? "Piece jointe envoyee."
+                : $"{dialog.FileNames.Length} pieces jointes envoyees.");
         }
 
         private async Task SendLocalAttachmentMessageAsync(string text)
@@ -624,7 +803,10 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Status = msg.Status,
                 IsMine = msg.AuthorId == _service.CurrentUser.Id,
                 IsEdited = msg.IsEdited,
-                IsDeleted = msg.IsDeleted
+                IsDeleted = msg.IsDeleted,
+                MediaPath = msg.MediaPath,
+                MediaType = msg.MediaType,
+                MediaSize = msg.MediaSize
             };
 
             var actions = MessageActions.GetAvailableActions(viewItem);
@@ -639,6 +821,38 @@ namespace WHATSAPP_CHAPT.App.Forms
                 ForeColor = Theme.TextPrimary,
                 Renderer = new ThemeContextMenuRenderer()
             };
+
+            if (viewItem.HasMedia)
+            {
+                var openMedia = new ToolStripMenuItem("Ouvrir la piece jointe");
+                openMedia.Click += (s, e) => OnMediaClicked(viewItem.MediaPath!, viewItem.MediaType ?? "document");
+                contextMenu.Items.Add(openMedia);
+
+                var downloadMedia = new ToolStripMenuItem("Telecharger / enregistrer sous");
+                downloadMedia.Click += (s, e) =>
+                {
+                    if (string.IsNullOrWhiteSpace(viewItem.MediaPath)) return;
+                    using var save = new SaveFileDialog
+                    {
+                        FileName = System.IO.Path.GetFileName(viewItem.MediaPath),
+                        Title = "Enregistrer la piece jointe"
+                    };
+                    if (save.ShowDialog(this) == DialogResult.OK)
+                    {
+                        try
+                        {
+                            System.IO.File.Copy(viewItem.MediaPath, save.FileName, overwrite: true);
+                            ShowStatusMessage("Piece jointe enregistree.");
+                        }
+                        catch (Exception ex)
+                        {
+                            ShowStatusMessage($"Enregistrement impossible : {ex.Message}");
+                        }
+                    }
+                };
+                contextMenu.Items.Add(downloadMedia);
+                contextMenu.Items.Add(new ToolStripSeparator());
+            }
 
             if (actions.Contains(MessageAction.Reply))
             {
@@ -691,12 +905,14 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             if (actions.Contains(MessageAction.Delete))
             {
-                var itemDelete = new ToolStripMenuItem("Supprimer pour moi");
+                var itemDelete = new ToolStripMenuItem(viewItem.IsMine ? "Supprimer pour tous" : "Supprimer pour moi");
                 itemDelete.Click += async (s, e) =>
                 {
                     var confirm = MessageBox.Show(
                         this,
-                        "Ce message sera supprimé uniquement sur cet appareil.",
+                        viewItem.IsMine
+                            ? "Ce message sera supprimé pour tous les utilisateurs connectes."
+                            : "Ce message sera supprimé uniquement sur cet appareil.",
                         "Supprimer le message",
                         MessageBoxButtons.OKCancel,
                         MessageBoxIcon.Warning);
@@ -738,20 +954,7 @@ namespace WHATSAPP_CHAPT.App.Forms
         {
             if (e.Button == MouseButtons.Left && _myAvatarRect.Contains(e.Location))
             {
-                using var ofd = new OpenFileDialog
-                {
-                    Title = "Sélectionner une photo de profil",
-                    Filter = "Fichiers image (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp|Tous les fichiers (*.*)|*.*"
-                };
-
-                if (ofd.ShowDialog(this) == DialogResult.OK)
-                {
-                    bool ok = _avatars.SetPhoto(_service.CurrentUser.Id, ofd.FileName);
-                    if (!ok)
-                    {
-                        MessageBox.Show(this, "Impossible de charger cette image.", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
+                OpenSettingsDialog();
             }
         }
 
@@ -774,6 +977,74 @@ namespace WHATSAPP_CHAPT.App.Forms
                 Renderer = new ThemeContextMenuRenderer()
             };
 
+            var itemOpen = new ToolStripMenuItem("Ouvrir");
+            itemOpen.Click += (s, e) => OnConversationSelected(this, conv.Id);
+            contextMenu.Items.Add(itemOpen);
+
+            var itemPin = new ToolStripMenuItem(conv.IsPinned ? "Desepingler" : "Epingler");
+            itemPin.Click += async (s, e) =>
+            {
+                await _service.SetConversationPinnedAsync(conv.Id, !conv.IsPinned);
+                await ReloadConversationsAsync();
+            };
+            contextMenu.Items.Add(itemPin);
+
+            var itemMute = new ToolStripMenuItem(conv.IsMuted ? "Reactiver les notifications" : "Mettre en sourdine");
+            itemMute.Click += async (s, e) =>
+            {
+                await _service.SetConversationMutedAsync(conv.Id, !conv.IsMuted);
+                ShowStatusMessage(conv.IsMuted ? "Notifications activees." : "Discussion mise en sourdine.");
+                await ReloadConversationsAsync();
+            };
+            contextMenu.Items.Add(itemMute);
+
+            var itemEphemeral = new ToolStripMenuItem("Messages ephemeres");
+            foreach (var option in new[]
+            {
+                ("Desactives", 0),
+                ("24 heures", 24),
+                ("7 jours", 168),
+                ("90 jours", 2160)
+            })
+            {
+                var optionItem = new ToolStripMenuItem(option.Item1);
+                optionItem.Click += async (s, e) =>
+                {
+                    await _service.SetEphemeralAsync(conv.Id, option.Item2);
+                    ShowStatusMessage($"Messages ephemeres : {option.Item1}");
+                };
+                itemEphemeral.DropDownItems.Add(optionItem);
+            }
+            contextMenu.Items.Add(itemEphemeral);
+
+            var itemPassword = new ToolStripMenuItem(conv.PasswordHash == null ? "Proteger par mot de passe" : "Retirer le mot de passe");
+            itemPassword.Click += async (s, e) =>
+            {
+                if (conv.PasswordHash != null)
+                {
+                    await _service.SetConversationPasswordAsync(conv.Id, null);
+                    ShowStatusMessage("Mot de passe retire.");
+                }
+                else
+                {
+                    using var prompt = CreatePasswordPrompt();
+                    if (prompt.ShowDialog(this) == DialogResult.OK)
+                    {
+                        string password = prompt.Tag as string ?? string.Empty;
+                        if (password.Length >= 4)
+                        {
+                            await _service.SetConversationPasswordAsync(conv.Id, password);
+                            ShowStatusMessage("Conversation protegee.");
+                        }
+                        else
+                        {
+                            ShowStatusMessage("Le mot de passe doit contenir au moins 4 caracteres.");
+                        }
+                    }
+                }
+            };
+            contextMenu.Items.Add(itemPassword);
+
             var itemArchive = new ToolStripMenuItem(conv.IsArchived ? "Désarchiver la discussion" : "Archiver la discussion");
             itemArchive.Click += async (s, e) =>
             {
@@ -783,33 +1054,41 @@ namespace WHATSAPP_CHAPT.App.Forms
             };
             contextMenu.Items.Add(itemArchive);
 
-            var itemSet = new ToolStripMenuItem("Définir une photo (démo)");
-            itemSet.Click += (s, e) =>
+            if (conv.Type == ConversationType.Direct)
             {
-                using var ofd = new OpenFileDialog
+                var itemContactInfo = new ToolStripMenuItem("Voir les informations du contact");
+                itemContactInfo.Click += async (s, e) =>
                 {
-                    Title = "Sélectionner une photo de profil (démo)",
-                    Filter = "Fichiers image (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp|Tous les fichiers (*.*)|*.*"
-                };
-
-                if (ofd.ShowDialog(this) == DialogResult.OK)
-                {
-                    bool ok = _avatars.SetPhoto(targetOwnerId, ofd.FileName);
-                    if (!ok)
+                    var contacts = await _service.GetContactsAsync();
+                    var contact = contacts.FirstOrDefault(c => c.Id == targetOwnerId);
+                    if (contact != null)
                     {
-                        MessageBox.Show(this, "Impossible de charger cette image.", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        ShowStatusMessage($"{contact.DisplayName} - IP : {contact.IpAddress ?? "non enregistrée"}");
                     }
+                };
+                contextMenu.Items.Add(itemContactInfo);
+            }
+
+            contextMenu.Items.Add(new ToolStripSeparator());
+            var itemDelete = new ToolStripMenuItem("Supprimer la discussion");
+            itemDelete.Click += async (s, e) =>
+            {
+                var confirm = MessageBox.Show(this,
+                    "La conversation, ses messages et son adresse IP enregistree seront supprimes.",
+                    "Supprimer",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+                if (confirm == DialogResult.Yes)
+                {
+                    await _service.DeleteConversationAsync(conv.Id);
+                    if (conv.Type == ConversationType.Direct)
+                    {
+                        await _service.DeleteContactAsync(targetOwnerId);
+                    }
+                    await ReloadConversationsAsync();
                 }
             };
-
-            var itemRemove = new ToolStripMenuItem("Retirer la photo");
-            itemRemove.Click += (s, e) =>
-            {
-                _avatars.RemovePhoto(targetOwnerId);
-            };
-
-            contextMenu.Items.Add(itemSet);
-            contextMenu.Items.Add(itemRemove);
+            contextMenu.Items.Add(itemDelete);
             contextMenu.Show(_listControl, position);
         }
 
@@ -1224,20 +1503,89 @@ namespace WHATSAPP_CHAPT.App.Forms
             dlg.ShowDialog(this);
         }
 
-        private void OpenNewContactDialog()
+        private Form CreatePasswordPrompt()
+        {
+            var form = new Form
+            {
+                Text = "Proteger la conversation",
+                Size = new Size(360, 170),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = Theme.AppBackground,
+                ForeColor = Theme.TextPrimary
+            };
+            var label = new Label
+            {
+                Text = "Mot de passe (minimum 4 caracteres)",
+                Location = new Point(20, 15),
+                Size = new Size(300, 22),
+                ForeColor = Theme.TextPrimary
+            };
+            var input = new TextBox
+            {
+                Location = new Point(20, 45),
+                Size = new Size(300, 28),
+                PasswordChar = '*',
+                BackColor = Theme.SearchBackground,
+                ForeColor = Theme.TextPrimary
+            };
+            var ok = new Button
+            {
+                Text = "Proteger",
+                DialogResult = DialogResult.OK,
+                Location = new Point(130, 90),
+                Size = new Size(90, 30),
+                BackColor = Theme.Accent,
+                ForeColor = Theme.AccentText,
+                FlatStyle = FlatStyle.Flat
+            };
+            ok.FlatAppearance.BorderSize = 0;
+            ok.Click += (s, e) => form.Tag = input.Text;
+            var cancel = new Button
+            {
+                Text = "Annuler",
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(230, 90),
+                Size = new Size(90, 30),
+                BackColor = Theme.Panel,
+                ForeColor = Theme.TextPrimary,
+                FlatStyle = FlatStyle.Flat
+            };
+            cancel.FlatAppearance.BorderSize = 0;
+            form.Controls.Add(label);
+            form.Controls.Add(input);
+            form.Controls.Add(ok);
+            form.Controls.Add(cancel);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+            return form;
+        }
+
+        private async void OpenNewContactDialog()
         {
             using var dlg = new NewContactForm();
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
+                await _service.AddContactAsync(dlg.ContactName, dlg.IpAddress);
+                await ReloadConversationsAsync();
                 ShowStatusMessage($"Contact P2P « {dlg.ContactName} » ({dlg.IpAddress}) ajouté.");
             }
         }
 
         private void OpenSettingsDialog()
         {
-            using var dlg = new SettingsForm(_service.CurrentUser.DisplayName, "127.0.0.1", _service.CurrentUser.Id, Theme.Accent);
+            using var dlg = new SettingsForm(_service.CurrentUser.DisplayName, "127.0.0.1", _service.CurrentUser.Id, Theme.Accent, _avatars);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
+                Theme.SetAccent(dlg.ThemeColor);
+                if (_avatars is IAvatarProvider avatarProvider)
+                {
+                    _headerPanel.Invalidate();
+                }
+                _headerPanel.Invalidate();
+                _rightPanel.Invalidate();
                 ShowStatusMessage("Paramètres enregistrés.");
             }
         }

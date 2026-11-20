@@ -180,8 +180,17 @@ namespace WHATSAPP_CHAPT.Storage
             {
                 return guid;
             }
+            return Guid.Empty;
+        }
 
-            return Guid.NewGuid();
+        public void SetLocalIdentity(Guid id, byte[] publicKey)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO Identities (Id, PublicKey, CreatedAt) VALUES (@id, @pk, @now);";
+            cmd.Parameters.AddWithValue("@id", id.ToString("d"));
+            cmd.Parameters.AddWithValue("@pk", publicKey);
+            cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
+            cmd.ExecuteNonQuery();
         }
 
         public void InsertContact(Guid id, string displayName, byte[] publicKey)
@@ -228,6 +237,14 @@ namespace WHATSAPP_CHAPT.Storage
             cmd.Parameters.AddWithValue("@name", name);
             cmd.Parameters.AddWithValue("@ip", ipAddress);
             cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o"));
+            cmd.ExecuteNonQuery();
+        }
+
+        public void DeletePeer(Guid id)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM Peers WHERE Id = @id;";
+            cmd.Parameters.AddWithValue("@id", id.ToString("d"));
             cmd.ExecuteNonQuery();
         }
 

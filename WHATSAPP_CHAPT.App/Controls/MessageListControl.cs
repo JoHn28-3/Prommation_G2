@@ -42,6 +42,7 @@ namespace WHATSAPP_CHAPT.App.Controls
         /// Événement levé lors d'un clic droit sur un message.
         /// </summary>
         public event Action<Guid, Point>? MessageRightClicked;
+        public event Action<string, string>? MediaClicked;
 
         /// <summary>
         /// Initialise une nouvelle instance de <see cref="MessageListControl"/>.
@@ -263,6 +264,32 @@ namespace WHATSAPP_CHAPT.App.Controls
             {
                 ScrollToBottom();
                 return;
+            }
+
+            if (e.Button == MouseButtons.Left)
+            {
+                int targetY = e.Y + _scrollOffset;
+                foreach (var item in _layoutItems)
+                {
+                    if (item is MessageBubbleLayoutItem bubble
+                        && bubble.Message.HasMedia
+                        && !bubble.MediaBounds.IsEmpty)
+                    {
+                        var mediaRect = new Rectangle(
+                            bubble.MediaBounds.X,
+                            bubble.MediaBounds.Y - _scrollOffset,
+                            bubble.MediaBounds.Width,
+                            bubble.MediaBounds.Height);
+                        if (mediaRect.Contains(e.Location)
+                            && !string.IsNullOrWhiteSpace(bubble.Message.MediaPath))
+                        {
+                            MediaClicked?.Invoke(
+                                bubble.Message.MediaPath,
+                                bubble.Message.MediaType ?? "document");
+                            return;
+                        }
+                    }
+                }
             }
 
             if (e.Button == MouseButtons.Right)

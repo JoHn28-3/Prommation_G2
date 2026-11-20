@@ -16,5 +16,10 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Nom affiché du contact.
         /// </summary>
         public string DisplayName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Derniere adresse IP connue du contact.
+        /// </summary>
+        public string? IpAddress { get; set; }
     }
 }

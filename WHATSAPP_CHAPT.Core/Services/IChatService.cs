@@ -93,6 +93,14 @@ namespace WHATSAPP_CHAPT.Core.Services
         /// </summary>
         Task<bool> ArchiveConversationAsync(Guid conversationId, bool isArchived);
 
+        Task<bool> DeleteConversationAsync(Guid conversationId);
+        Task<bool> SetConversationMutedAsync(Guid conversationId, bool isMuted);
+        Task<bool> SetConversationPinnedAsync(Guid conversationId, bool isPinned);
+        Task<bool> SetEphemeralAsync(Guid conversationId, int hours);
+        Task<bool> SetConversationPasswordAsync(Guid conversationId, string? password);
+        Task<Contact> AddContactAsync(string displayName, string ipAddress);
+        Task<bool> DeleteContactAsync(Guid contactId);
+
         /// <summary>
         /// Événement levé lorsqu'un événement de chat se produit.
         /// </summary>

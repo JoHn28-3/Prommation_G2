@@ -69,5 +69,10 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Taille du fichier média en octets.
         /// </summary>
         public long? MediaSize { get; set; }
+
+        /// <summary>
+        /// Date d'expiration pour les messages ephemeres.
+        /// </summary>
+        public DateTimeOffset? ExpiresAt { get; set; }
     }
 }

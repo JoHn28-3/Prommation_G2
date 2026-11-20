@@ -70,7 +70,7 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             _lblStatus = new Label
             {
-                Text = "Connexion P2P en cours...",
+                Text = "Aucun flux WebRTC actif",
                 Font = new Font("Segoe UI", 10.5f, FontStyle.Regular),
                 ForeColor = Theme.Accent,
                 Dock = DockStyle.Top,
@@ -179,15 +179,14 @@ namespace WHATSAPP_CHAPT.App.Forms
                 _lblStatus.ForeColor = Color.FromArgb(40, 190, 80);
             };
 
-            // Démarrer après 1s
+            // Ne démarre pas un appel factice : l'état reste bloqué jusqu'à une session réelle.
             var startTimer = new System.Windows.Forms.Timer { Interval = 1200 };
             startTimer.Tick += (s, e) =>
             {
                 startTimer.Stop();
                 startTimer.Dispose();
-                _callTimer.Start();
-                _lblStatus.Text = "En communication (00:00)";
-                _lblStatus.ForeColor = Color.FromArgb(40, 190, 80);
+                _lblStatus.Text = "Appel non connecté - flux média indisponible";
+                _lblStatus.ForeColor = Color.FromArgb(220, 160, 40);
             };
             startTimer.Start();
         }
@@ -196,37 +195,25 @@ namespace WHATSAPP_CHAPT.App.Forms
         {
             var g = e.Graphics;
             g.Clear(Color.FromArgb(12, 16, 20));
+            int size = 120;
+            int x = (_videoPanel.Width - size) / 2;
+            int y = Math.Max(40, (_videoPanel.Height - size) / 2 - 40);
+            using var avatarBrush = new SolidBrush(Theme.Accent);
+            g.FillEllipse(avatarBrush, x, y, size, size);
 
-            if (_isVideoOn)
-            {
-                // Rendu visuel d'un flux vidéo P2P
-                using var brush = new SolidBrush(Color.FromArgb(30, 40, 50));
-                g.FillRectangle(brush, 40, 40, _videoPanel.Width - 80, _videoPanel.Height - 80);
+            using var initialFont = new Font("Segoe UI", 32f, FontStyle.Bold);
+            string initial = string.IsNullOrEmpty(_peerName) ? "?" : _peerName[..1].ToUpperInvariant();
+            TextRenderer.DrawText(g, initial, initialFont, new Rectangle(x, y, size, size),
+                Theme.AccentText, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
-                using var borderPen = new Pen(Theme.Accent, 2f);
-                g.DrawRectangle(borderPen, 40, 40, _videoPanel.Width - 80, _videoPanel.Height - 80);
-
-                using var font = new Font("Segoe UI", 14f, FontStyle.Bold);
-                TextRenderer.DrawText(g, $"Flux vidéo direct : {_peerName}", font,
-                    new Rectangle(40, 40, _videoPanel.Width - 80, _videoPanel.Height - 80),
-                    Theme.TextSecondary,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-            else
-            {
-                // Rendu audio seul (avatar centré)
-                int size = 120;
-                int x = (_videoPanel.Width - size) / 2;
-                int y = (_videoPanel.Height - size) / 2;
-
-                using var avatarBrush = new SolidBrush(Theme.Accent);
-                g.FillEllipse(avatarBrush, x, y, size, size);
-
-                using var font = new Font("Segoe UI", 32f, FontStyle.Bold);
-                string initial = string.IsNullOrEmpty(_peerName) ? "?" : _peerName[..1].ToUpperInvariant();
-                TextRenderer.DrawText(g, initial, font, new Rectangle(x, y, size, size),
-                    Theme.AccentText, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
+            using var messageFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+            var messageRect = new Rectangle(20, y + size + 20, _videoPanel.Width - 40, 70);
+            TextRenderer.DrawText(g,
+                "Caméra et flux audio/vidéo WebRTC non disponibles dans cette version.\nAucun flux factice n'est affiché.",
+                messageFont,
+                messageRect,
+                Theme.TextSecondary,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak);
         }
 
         protected override void Dispose(bool disposing)

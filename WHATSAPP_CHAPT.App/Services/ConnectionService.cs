@@ -4,6 +4,7 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using WHATSAPP_CHAPT.Storage;
 using WHATSAPP_CHAPT.Storage.Models;
@@ -20,6 +21,7 @@ namespace WHATSAPP_CHAPT.App.Services
         private const int TcpPort = 5000;
 
         public event EventHandler<(string Ip, string RemoteId)>? Discovered;
+        public event EventHandler<(string Ip, string Payload)>? PayloadReceived;
 
         public ConnectionService(StorageContext storage)
         {
@@ -83,6 +85,79 @@ namespace WHATSAPP_CHAPT.App.Services
         public Task<Guid> GetLocalIdAsync()
         {
             return _storage.GetLocalIdAsync();
+        }
+
+        public async Task StartTcpListenerAsync()
+        {
+            var listener = new TcpListener(IPAddress.Any, TcpPort);
+            listener.Start();
+            try
+            {
+                while (true)
+                {
+                    using TcpClient client = await listener.AcceptTcpClientAsync();
+                    _ = HandleIncomingTcpAsync(client);
+                }
+            }
+            finally
+            {
+                listener.Stop();
+            }
+        }
+
+        private async Task HandleIncomingTcpAsync(TcpClient client)
+        {
+            try
+            {
+                using (client)
+                using (NetworkStream stream = client.GetStream())
+                {
+                    byte[] buffer = new byte[64 * 1024];
+                    int read = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    if (read <= 0) return;
+
+                    string text = Encoding.UTF8.GetString(buffer, 0, read);
+                    int separator = text.IndexOf('\n');
+                    if (separator <= 0) return;
+                    string header = text[..separator].Trim();
+                    string payload = text[(separator + 1)..];
+                    if (!header.StartsWith("HELLO:", StringComparison.OrdinalIgnoreCase)) return;
+
+                    string ip = ((IPEndPoint)client.Client.RemoteEndPoint!).Address.ToString();
+                    PayloadReceived?.Invoke(this, (ip, payload));
+                }
+            }
+            catch
+            {
+                // Un pair invalide ou deconnecte ne doit pas interrompre l'écoute.
+            }
+        }
+
+        public async Task SendPayloadAsync(string ip, string payload)
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(ip, TcpPort);
+            using NetworkStream stream = client.GetStream();
+            Guid localId = await GetLocalIdAsync();
+            string packet = $"HELLO:{localId:D}\n{payload}";
+            byte[] bytes = Encoding.UTF8.GetBytes(packet);
+            await stream.WriteAsync(bytes, 0, bytes.Length);
+            await stream.FlushAsync();
+        }
+
+        public async Task StartDiscoveryBroadcastAsync(CancellationToken cancellationToken)
+        {
+            using var udp = new UdpClient();
+            udp.EnableBroadcast = true;
+            Guid localId = await GetLocalIdAsync();
+            byte[] bytes = Encoding.UTF8.GetBytes($"HELLO:{localId:D}");
+            var endpoint = new IPEndPoint(IPAddress.Broadcast, BroadcastPort);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await udp.SendAsync(bytes, bytes.Length, endpoint);
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
         }
     }
 }

@@ -36,5 +36,25 @@ namespace WHATSAPP_CHAPT.Core.Models
         /// Indique si la conversation est archivée (Phase I).
         /// </summary>
         public bool IsArchived { get; set; }
+
+        /// <summary>
+        /// Indique si la conversation est epinglee.
+        /// </summary>
+        public bool IsPinned { get; set; }
+
+        /// <summary>
+        /// Indique si les notifications sont coupees.
+        /// </summary>
+        public bool IsMuted { get; set; }
+
+        /// <summary>
+        /// Duree des messages ephemeres en heures. Zero signifie desactive.
+        /// </summary>
+        public int EphemeralHours { get; set; }
+
+        /// <summary>
+        /// Empreinte locale du mot de passe protegeant la conversation.
+        /// </summary>
+        public string? PasswordHash { get; set; }
     }
 }
