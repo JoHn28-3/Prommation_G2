@@ -72,14 +72,7 @@ static class Program
 
         if (!profileStore.Exists)
         {
-            using var registration = new RegistrationForm(profile);
-            if (registration.ShowDialog() != DialogResult.OK)
-                return;
-
-            profile = registration.Profile;
-            registrationPhotoPath = registration.Tag as string;
-            profileStore.Save(profile);
-            Theme.SetThemeMode(profile.ThemeMode);
+            profile = new UserProfile { IpAddress = ProfileStore.DetectLocalIp() };
         }
 
         var connection = new ConnectionService(storage);

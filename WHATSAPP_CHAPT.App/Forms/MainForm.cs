@@ -61,6 +61,7 @@ namespace WHATSAPP_CHAPT.App.Forms
         private Font _rightEmptyFont;
         private Font _rightSelectedNameFont;
         private Font _rightSubtitleFont;
+        private readonly bool _needsRegistration;
 
         private static Icon LoadApplicationIcon()
         {
@@ -107,6 +108,7 @@ namespace WHATSAPP_CHAPT.App.Forms
             _service = service ?? throw new ArgumentNullException(nameof(service));
             _avatars = avatars ?? throw new ArgumentNullException(nameof(avatars));
             _profileStore = profileStore;
+            _needsRegistration = profileStore != null && !profileStore.Exists;
 
             _headerAvatarCache = new AvatarCache(_avatars);
             _avatars.PhotoChanged += OnAvatarPhotoChanged;
@@ -1048,18 +1050,18 @@ namespace WHATSAPP_CHAPT.App.Forms
 
             try
             {
-                const int longMessageLimit = 4000;
-                if (text.Length <= longMessageLimit)
+                var policy = new MessageLongTextPolicy(4096, true);
+                var chunks = policy.Split(text);
+                if (chunks.Count == 1)
                 {
                     await _service.SendMessageAsync(conversationId, text, replyToMessageId);
                 }
                 else
                 {
-                    for (int start = 0; start < text.Length; start += longMessageLimit)
+                    for (int i = 0; i < chunks.Count; i++)
                     {
-                        int length = Math.Min(longMessageLimit, text.Length - start);
-                        string chunk = text.Substring(start, length);
-                        Guid? reply = start == 0 ? replyToMessageId : null;
+                        string chunk = chunks[i];
+                        Guid? reply = i == 0 ? replyToMessageId : null;
                         await _service.SendMessageAsync(conversationId, chunk, reply);
                     }
                 }
@@ -1403,6 +1405,25 @@ namespace WHATSAPP_CHAPT.App.Forms
         protected override async void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
+            if (_needsRegistration && _profileStore != null)
+            {
+                var profile = _profileStore.Load();
+                var welcome = new WelcomePage(profile);
+                welcome.RegistrationCompleted += (registered, photoPath) =>
+                {
+                    _profileStore.Save(registered);
+                    if (!string.IsNullOrWhiteSpace(photoPath))
+                        _avatars.SetPhoto(_service.CurrentUser.Id, photoPath);
+                    ShowSectionView(null);
+                    welcome.Dispose();
+                    _ = ReloadConversationsAsync();
+                };
+                _sectionPanel.Controls.Clear();
+                _sectionPanel.Controls.Add(welcome);
+                _sectionPanel.Visible = true;
+                _sectionPanel.BringToFront();
+                return;
+            }
             await ReloadConversationsAsync();
         }
 

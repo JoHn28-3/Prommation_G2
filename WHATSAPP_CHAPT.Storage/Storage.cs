@@ -100,7 +100,16 @@ namespace WHATSAPP_CHAPT.Storage
         /// </summary>
         public string ExportContactCard(string displayName)
         {
-            var json = $"{{\"v\":1,\"n\":\"{displayName}\",\"pk\":\"{Convert.ToBase64String(PublicKey)}\"}}";
+            string fingerprint = Convert.ToHexString(SHA256.HashData(PublicKey)).ToLowerInvariant();
+            var card = new
+            {
+                v = 1,
+                n = displayName,
+                u = string.Empty,
+                pk = Convert.ToBase64String(PublicKey),
+                h = fingerprint
+            };
+            string json = System.Text.Json.JsonSerializer.Serialize(card);
             string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
             return $"WCARD1:{b64}";
         }
