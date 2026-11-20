@@ -22,6 +22,11 @@ namespace WHATSAPP_CHAPT.App.SelfTest
 
             string normalizedPhase = phase.Trim().ToLowerInvariant().TrimStart('7');
 
+            if (normalizedPhase == "p1" || normalizedPhase == "1" || normalizedPhase == "all")
+            {
+                PhaseP1Tests.Run(results);
+            }
+
             if (normalizedPhase == "a" || normalizedPhase == "all")
             {
                 Phase7ATests.Run(results);

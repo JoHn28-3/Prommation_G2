@@ -12,7 +12,7 @@ namespace WHATSAPP_CHAPT.App.Controls
 {
     public class NavigationButton : Button
     {
-        private readonly ToolTip _toolTip;
+        private string _toolTipText = string.Empty;
         private bool _isSelected;
 
         [Browsable(false)]
@@ -31,13 +31,12 @@ namespace WHATSAPP_CHAPT.App.Controls
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string ToolTipText
         {
-            get => _toolTip.GetToolTip(this) ?? string.Empty;
-            set => _toolTip.SetToolTip(this, value ?? string.Empty);
+            get => _toolTipText;
+            set => _toolTipText = value ?? string.Empty;
         }
 
         public NavigationButton()
         {
-            _toolTip = new ToolTip();
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
             Width = 52; // approximate width
@@ -48,7 +47,7 @@ namespace WHATSAPP_CHAPT.App.Controls
             // Enable owner draw for custom background on hover/selection
             SetStyle(ControlStyles.UserPaint, true);
             SetStyle(ControlStyles.AllPaintingInWmPaint, true);
-            SetStyle(ControlStyles.DoubleBuffer, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -103,8 +102,6 @@ namespace WHATSAPP_CHAPT.App.Controls
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-                _toolTip.Dispose();
             base.Dispose(disposing);
         }
     }

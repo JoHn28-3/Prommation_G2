@@ -26,13 +26,6 @@ namespace WHATSAPP_CHAPT.App.Controls
             BuildButtons();
         }
 
-        private new int LogicalToDeviceUnits(int logical)
-        {
-            // Override hides inherited Control.LogicalToDeviceUnits with our DPI calculation
-            using var g = CreateGraphics();
-            return (int)(logical * g.DpiX / 96.0);
-        }
-
         private void BuildButtons()
         {
             // Define sections – order matters (top to bottom). Bottom button will be anchored later.

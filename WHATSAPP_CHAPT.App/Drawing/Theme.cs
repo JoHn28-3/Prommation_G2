@@ -1,53 +1,63 @@
 #nullable enable
 
+using System;
 using System.Drawing;
 
 namespace WHATSAPP_CHAPT.App.Drawing
 {
+    public enum ThemeMode
+    {
+        Dark,
+        Light,
+        System
+    }
+
     /// <summary>
     /// Fournit les couleurs et constantes graphiques de l'application selon le thème sombre et bleu ciel.
     /// </summary>
     public static class Theme
     {
+        public static event EventHandler? ThemeChanged;
+        public static ThemeMode Mode { get; private set; } = ThemeMode.Dark;
         /// <summary>
         /// Fond principal de l'application (#0B0F14).
         /// </summary>
-        public static readonly Color AppBackground = Color.FromArgb(0x0B, 0x0F, 0x14);
+        public static Color AppBackground { get; private set; } = Color.FromArgb(0x0B, 0x0F, 0x14);
 
         /// <summary>
         /// Fond des panneaux et de la barre latérale (#111820).
         /// </summary>
-        public static readonly Color Panel = Color.FromArgb(0x11, 0x18, 0x20);
+        public static Color Panel { get; private set; } = Color.FromArgb(0x11, 0x18, 0x20);
 
         /// <summary>
         /// Fond des en-têtes (#161E29).
         /// </summary>
-        public static readonly Color Header = Color.FromArgb(0x16, 0x1E, 0x29);
+        public static Color Header { get; private set; } = Color.FromArgb(0x16, 0x1E, 0x29);
 
         /// <summary>
         /// Fond au survol (#1A2430).
         /// </summary>
-        public static readonly Color Hover = Color.FromArgb(0x1A, 0x24, 0x30);
+        public static Color Hover { get; private set; } = Color.FromArgb(0x1A, 0x24, 0x30);
 
         /// <summary>
         /// Fond d'un élément sélectionné (#223041).
         /// </summary>
-        public static readonly Color Selected = Color.FromArgb(0x22, 0x30, 0x41);
+        public static Color Selected { get; private set; } = Color.FromArgb(0x22, 0x30, 0x41);
 
         /// <summary>
         /// Couleur des lignes séparatrices (#1F2A37).
         /// </summary>
-        public static readonly Color Separator = Color.FromArgb(0x1F, 0x2A, 0x37);
+        public static Color Separator { get; private set; } = Color.FromArgb(0x1F, 0x2A, 0x37);
 
         /// <summary>
         /// Texte principal (#E8EEF4).
         /// </summary>
-        public static readonly Color TextPrimary = Color.FromArgb(0xE8, 0xEE, 0xF4);
+        public static Color TextPrimary { get; private set; } = Color.FromArgb(0xE8, 0xEE, 0xF4);
 
         /// <summary>
         /// Texte secondaire (#8A9BAD).
         /// </summary>
-        public static readonly Color TextSecondary = Color.FromArgb(0x8A, 0x9B, 0xAD);
+        public static Color TextSecondary { get; private set; } = Color.FromArgb(0x8A, 0x9B, 0xAD);
 
         /// <summary>
         /// Couleur d'accentuation bleu ciel (#38BDF8).
@@ -62,7 +72,7 @@ namespace WHATSAPP_CHAPT.App.Drawing
         /// <summary>
         /// Bulle de message entrant (#1C2631).
         /// </summary>
-        public static readonly Color BubbleIncoming = Color.FromArgb(0x1C, 0x26, 0x31);
+        public static Color BubbleIncoming { get; private set; } = Color.FromArgb(0x1C, 0x26, 0x31);
 
         /// <summary>
         /// Bulle de message sortant (#38BDF8).
@@ -72,27 +82,27 @@ namespace WHATSAPP_CHAPT.App.Drawing
         /// <summary>
         /// Texte de message sortant (#04121C).
         /// </summary>
-        public static readonly Color OutgoingText = Color.FromArgb(0x04, 0x12, 0x1C);
+        public static Color OutgoingText { get; private set; } = Color.FromArgb(0x04, 0x12, 0x1C);
 
         /// <summary>
         /// Métadonnées de message sortant : heure et coches (#0B4A68).
         /// </summary>
-        public static readonly Color OutgoingMeta = Color.FromArgb(0x0B, 0x4A, 0x68);
+        public static Color OutgoingMeta { get; private set; } = Color.FromArgb(0x0B, 0x4A, 0x68);
 
         /// <summary>
         /// Fond d'une citation dans une bulle de message sortant (opacité réduite).
         /// </summary>
-        public static readonly Color BubbleOutgoingReplyBackground = Color.FromArgb(40, 0x0B, 0x4A, 0x68);
+        public static Color BubbleOutgoingReplyBackground { get; private set; } = Color.FromArgb(40, 0x0B, 0x4A, 0x68);
 
         /// <summary>
         /// Coche de message lu (#FFFFFF).
         /// </summary>
-        public static readonly Color TickRead = Color.FromArgb(0xFF, 0xFF, 0xFF);
+        public static Color TickRead { get; private set; } = Color.FromArgb(0xFF, 0xFF, 0xFF);
 
         /// <summary>
         /// Fond du champ de recherche (#1A2430).
         /// </summary>
-        public static readonly Color SearchBackground = Color.FromArgb(0x1A, 0x24, 0x30);
+        public static Color SearchBackground { get; private set; } = Color.FromArgb(0x1A, 0x24, 0x30);
 
         /// <summary>
         /// Couleurs d'auteurs pour les discussions de groupe.
@@ -126,6 +136,63 @@ namespace WHATSAPP_CHAPT.App.Drawing
         {
             Accent = color;
             BubbleOutgoing = color;
+            ThemeChanged?.Invoke(null, EventArgs.Empty);
+        }
+
+        public static void SetThemeMode(string mode)
+        {
+            SetThemeMode(mode.Equals("light", StringComparison.OrdinalIgnoreCase)
+                ? ThemeMode.Light
+                : mode.Equals("system", StringComparison.OrdinalIgnoreCase)
+                    ? ThemeMode.System
+                    : ThemeMode.Dark);
+        }
+
+        public static void SetThemeMode(ThemeMode mode)
+        {
+            Mode = mode;
+            bool light = mode == ThemeMode.Light
+                || (mode == ThemeMode.System && SystemColors.Window.R > 180);
+
+            if (light)
+            {
+                AppBackground = Color.FromArgb(0xF5, 0xF7, 0xFA);
+                Panel = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                Header = Color.FromArgb(0xEE, 0xF2, 0xF6);
+                Hover = Color.FromArgb(0xE6, 0xEC, 0xF2);
+                Selected = Color.FromArgb(0xDC, 0xEB, 0xF7);
+                Separator = Color.FromArgb(0xDD, 0xE5, 0xEC);
+                TextPrimary = Color.FromArgb(0x0F, 0x1A, 0x24);
+                TextSecondary = Color.FromArgb(0x5B, 0x6B, 0x7B);
+                SearchBackground = Color.FromArgb(0xF5, 0xF7, 0xFA);
+                Accent = Color.FromArgb(0x0E, 0xA5, 0xE9);
+                BubbleOutgoing = Color.FromArgb(0xBF, 0xE8, 0xFB);
+                BubbleIncoming = Color.White;
+                OutgoingText = Color.FromArgb(0x0F, 0x1A, 0x24);
+                OutgoingMeta = Color.FromArgb(0x5B, 0x6B, 0x7B);
+                BubbleOutgoingReplyBackground = Color.FromArgb(40, 0x0E, 0xA5, 0xE9);
+                TickRead = Color.FromArgb(0x0E, 0xA5, 0xE9);
+            }
+            else
+            {
+                AppBackground = Color.FromArgb(0x0B, 0x11, 0x19);
+                Panel = Color.FromArgb(0x11, 0x19, 0x23);
+                Header = Color.FromArgb(0x17, 0x23, 0x30);
+                Hover = Color.FromArgb(0x1D, 0x2A, 0x38);
+                Selected = Color.FromArgb(0x22, 0x30, 0x41);
+                Separator = Color.FromArgb(0x1F, 0x2A, 0x37);
+                TextPrimary = Color.FromArgb(0xF4, 0xF7, 0xFA);
+                TextSecondary = Color.FromArgb(0x8F, 0xA6, 0xBC);
+                SearchBackground = Color.FromArgb(0x1D, 0x2A, 0x38);
+                Accent = Color.FromArgb(0x38, 0xBD, 0xF8);
+                BubbleOutgoing = Color.FromArgb(0x24, 0xB8, 0xEC);
+                BubbleIncoming = Color.FromArgb(0x1D, 0x2A, 0x38);
+                OutgoingText = Color.FromArgb(0x04, 0x12, 0x1C);
+                OutgoingMeta = Color.FromArgb(0x0B, 0x4A, 0x68);
+                BubbleOutgoingReplyBackground = Color.FromArgb(40, 0x0B, 0x4A, 0x68);
+                TickRead = Color.White;
+            }
+            ThemeChanged?.Invoke(null, EventArgs.Empty);
         }
     }
 }
